@@ -231,8 +231,8 @@ def main():
                         risk_engine._trigger_kill_switch(drawdown_check["reason"])
                         trading_state.disable_trading()
                     
-                    # Check max daily loss
-                    daily_loss_check = risk_engine._check_max_daily_loss()
+                    # Check max daily loss (using _check_daily_loss_limit which exists)
+                    daily_loss_check = risk_engine._check_daily_loss_limit()
                     if not daily_loss_check["passed"]:
                         logger.critical(f"Max daily loss breached: {daily_loss_check['reason']}")
                         risk_engine._trigger_kill_switch(daily_loss_check["reason"])

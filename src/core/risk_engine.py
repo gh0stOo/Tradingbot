@@ -195,7 +195,12 @@ class RiskEngine:
     def _check_max_daily_loss(self) -> Dict:
         """Check if max daily loss is breached"""
         daily_pnl = self.trading_state.daily_pnl
-        max_daily_loss = self.trading_state.daily_start_equity * self.max_daily_loss_pct
+        daily_start_equity = self.trading_state.daily_start_equity
+        
+        if daily_start_equity <= 0:
+            return {"passed": True}  # Cannot check if starting equity is invalid
+        
+        max_daily_loss = daily_start_equity * self.max_daily_loss  # max_daily_loss is already a percentage (e.g., 0.005 = 0.5%)
         
         if daily_pnl <= -max_daily_loss:  # Negative PnL (loss)
             return {
