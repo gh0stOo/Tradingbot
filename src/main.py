@@ -23,6 +23,10 @@ from monitoring.health_check import HealthChecker
 from monitoring.alerting import AlertManager, AlertLevel
 from dashboard.bot_state_manager import BotStateManager, BotStatus
 
+# FIX #6: Global state manager to ensure same instance in shutdown handler
+# This prevents creating a new instance in the exception handler
+global_state_manager = None
+
 def get_equity(config: dict, bybit_client: BybitClient) -> float:
     """Get account equity"""
     trading_mode = config.get("trading", {}).get("mode", "PAPER")
@@ -149,9 +153,10 @@ def main():
     market_data = MarketData(market_data_client)
     order_manager = OrderManager(bybit_client, trading_mode, position_tracker, data_collector)
     bot = TradingBot(config, market_data, order_manager, data_collector, position_tracker)
-    
-    # Initialize State Manager for Bot Control
-    state_manager = BotStateManager()
+
+    # FIX #6: Initialize State Manager for Bot Control (as global)
+    global global_state_manager
+    global_state_manager = BotStateManager()
     logger.info("Bot State Manager initialized")
 
     # Initialize Genetic Algorithm Optimization (Phase 2.5)
@@ -611,19 +616,19 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger = setup_logger()
         logger.info("Shutting down gracefully due to user interrupt...")
-        # Get state manager and set status to stopped
+        # FIX #6: Use global state_manager instance (not a new one)
         try:
-            state_manager = BotStateManager()
-            state_manager.set_status(BotStatus.STOPPED)
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.STOPPED)
         except Exception as shutdown_error:
             logger.warning(f"Failed to update BotStateManager during shutdown: {shutdown_error}")
     except Exception as e:
         logger = setup_logger()
         logger.error(f"Fatal error occurred: {e}", exc_info=True)
-        # Set error status
+        # FIX #6: Use global state_manager instance (not a new one)
         try:
-            state_manager = BotStateManager()
-            state_manager.set_status(BotStatus.ERROR, str(e))
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.ERROR, str(e))
         except Exception as state_error:
             logger.warning(f"Failed to update BotStateManager with error status: {state_error}")
         raise

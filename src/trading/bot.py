@@ -50,6 +50,8 @@ class TradingBot:
         self.order_manager = order_manager
         self.data_collector = data_collector
         self.position_tracker = position_tracker
+        # FIX #3: Store trading_mode (was missing)
+        self.trading_mode = config.get("trading", {}).get("mode", "PAPER")
         # Initialize indicators with caching enabled
         cache_duration = config.get("indicators", {}).get("cacheDuration", 60)
         self.indicators_calc = Indicators(enable_cache=True, cache_duration=cache_duration)
@@ -483,18 +485,26 @@ class TradingBot:
                 return None
             
             # Parse klines
-            klines_m1 = self.indicators_calc.parse_klines(symbol_data["klines"]["m1"])
-            klines_m5 = self.indicators_calc.parse_klines(symbol_data["klines"].get("m5", []))
-            klines_m15 = self.indicators_calc.parse_klines(symbol_data["klines"].get("m15", []))
-            
+            klines_m1_raw = self.indicators_calc.parse_klines(symbol_data["klines"]["m1"])
+            klines_m5_raw = self.indicators_calc.parse_klines(symbol_data["klines"].get("m5", []))
+            klines_m15_raw = self.indicators_calc.parse_klines(symbol_data["klines"].get("m15", []))
+
+            # FIX #5: CRITICAL - Remove open/incomplete candle (prevent lookahead bias)
+            # The last candle in klines is OPEN (not yet closed), so we must exclude it
+            # from indicator calculations to avoid trading on future price movement
+            klines_m1 = klines_m1_raw[:-1] if len(klines_m1_raw) > 0 else klines_m1_raw
+            klines_m5 = klines_m5_raw[:-1] if len(klines_m5_raw) > 0 else klines_m5_raw
+            klines_m15 = klines_m15_raw[:-1] if len(klines_m15_raw) > 0 else klines_m15_raw
+
             # Update portfolio heat price history for correlation calculation
-            if not klines_m1.empty:
-                self.portfolio_heat.update_price_history(symbol, klines_m1["close"])
-            
+            # Use raw klines since we just need recent price for correlation
+            if not klines_m1_raw.empty:
+                self.portfolio_heat.update_price_history(symbol, klines_m1_raw["close"])
+
             if klines_m1.empty or len(klines_m1) < 50:
                 return None
-            
-            # Calculate indicators (with caching)
+
+            # Calculate indicators (with caching) - NOW using only CLOSED candles
             indicators = self.indicators_calc.calculate_all(klines_m1, symbol=symbol)
             if not indicators:
                 return None

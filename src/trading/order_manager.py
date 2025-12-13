@@ -33,6 +33,8 @@ class OrderManager:
         self.trading_mode = trading_mode
         self.position_tracker = position_tracker
         self.data_collector = data_collector
+        # FIX #2: Initialize slippage model (was missing)
+        self.slippage_model = SlippageModel()
     
     def execute_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -78,6 +80,9 @@ class OrderManager:
             fill_price = price + slippage
         else:
             fill_price = price - slippage
+
+        # FIX #1: Calculate slippage_pct (was undefined before)
+        slippage_pct = (slippage / price * 100) if price > 0 else 0
 
         order_id = f"PAPER_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
 

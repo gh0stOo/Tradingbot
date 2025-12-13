@@ -58,31 +58,51 @@ class PositionMonitor:
         
         for symbol, position in open_positions.items():
             if symbol not in current_prices:
+                logger.warning(f"No current price available for {symbol}, skipping position check")
                 continue
             
             current_price = current_prices[symbol]
             
-            # Check stop loss
-            if self._check_stop_loss(position, current_price):
-                exit_info = self._close_position(position, current_price, "Stop Loss")
-                if exit_info:
-                    exits.append(exit_info)
+            # Validate price is positive
+            if current_price <= 0:
+                logger.warning(f"Invalid current price {current_price} for {symbol}, skipping")
                 continue
             
-            # Check take profit
-            if self._check_take_profit(position, current_price):
-                exit_info = self._close_position(position, current_price, "Take Profit")
-                if exit_info:
-                    exits.append(exit_info)
-                continue
-            
-            # Update unrealized PnL
-            self.trading_state.update_position_pnl(symbol, current_price)
+            try:
+                # Check stop loss first (more important)
+                if self._check_stop_loss(position, current_price):
+                    exit_info = self._close_position(position, current_price, "Stop Loss")
+                    if exit_info:
+                        exits.append(exit_info)
+                        continue  # Position closed, skip take profit check
+                    else:
+                        logger.error(f"Failed to close position {symbol} on stop loss, will retry next check")
+                
+                # Check take profit (only if stop loss didn't trigger)
+                elif self._check_take_profit(position, current_price):
+                    exit_info = self._close_position(position, current_price, "Take Profit")
+                    if exit_info:
+                        exits.append(exit_info)
+                        continue  # Position closed
+                    else:
+                        logger.error(f"Failed to close position {symbol} on take profit, will retry next check")
+                
+                # Update unrealized PnL if position still open
+                else:
+                    self.trading_state.update_position_pnl(symbol, current_price)
+                    
+            except Exception as e:
+                logger.error(f"Error checking position {symbol}: {e}", exc_info=True)
+                # Continue with other positions even if one fails
         
         return exits
     
     def _check_stop_loss(self, position: Position, current_price: Decimal) -> bool:
         """Check if stop loss is hit"""
+        # Validate stop loss is set
+        if not position.stop_loss or position.stop_loss <= 0:
+            return False  # No stop loss set, cannot trigger
+        
         if position.side == "Buy":
             return current_price <= position.stop_loss
         else:  # Sell
@@ -90,6 +110,10 @@ class PositionMonitor:
     
     def _check_take_profit(self, position: Position, current_price: Decimal) -> bool:
         """Check if take profit is hit"""
+        # Validate take profit is set
+        if not position.take_profit or position.take_profit <= 0:
+            return False  # No take profit set, cannot trigger
+        
         if position.side == "Buy":
             return current_price >= position.take_profit
         else:  # Sell

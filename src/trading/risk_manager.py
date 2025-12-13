@@ -230,12 +230,15 @@ class RiskManager:
     ) -> Dict[str, Any]:
         """
         Setup multi-target exits (supports 2-4 targets dynamically)
-        
+
+        INTERNAL CALCULATION FUNCTION - Results passed to OrderManager for execution.
+        Do not make API calls here. OrderManager is responsible for order execution.
+
         Args:
             position: Position dictionary with qty and price
             atr: Average True Range
             side: Trade side (Buy/Sell)
-            
+
         Returns:
             Position dictionary with multi-target exits
         """

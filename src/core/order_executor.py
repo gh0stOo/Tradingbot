@@ -78,12 +78,11 @@ class OrderExecutor:
         if intent.signal_event_id:
             # Use signal event ID as base (deterministic)
             base_id = intent.signal_event_id
-        elif intent.event_id:
-            # Fallback to intent event_id
-            base_id = intent.event_id
         else:
-            # Last resort: create deterministic ID from intent properties (without quantity/price which may vary)
-            intent_str = f"{intent.symbol}_{intent.side}_{intent.strategy_name}"
+            # Fallback: create deterministic ID from intent properties
+            # Use symbol, side, strategy_name, and entry_price (but NOT quantity which may vary)
+            # Entry price is part of the signal, so it's deterministic
+            intent_str = f"{intent.symbol}_{intent.side}_{intent.strategy_name}_{float(intent.entry_price):.8f}"
             base_id = hashlib.md5(intent_str.encode()).hexdigest()[:16]
         
         client_order_id = f"ORDER_{base_id}"

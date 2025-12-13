@@ -215,45 +215,67 @@ def main():
                     if symbols:
                         logger.info(f"Collecting market data for {len(symbols)} symbols")
                         market_data_collector.collect_and_publish(symbols)
-                        
-                        # Monitor positions and check for exits
-                        try:
-                            # Get current prices for all symbols with open positions
-                            open_positions = trading_state.get_open_positions()
+                    
+                except Exception as e:
+                    logger.error(f"Error collecting market data: {e}", exc_info=True)
+            
+            # Monitor positions more frequently (every position_check_interval seconds)
+            # IMPORTANT: Only monitor positions for PAPER trading
+            # For LIVE trading, exchange handles stop-loss/take-profit orders
+            if current_status == BotStatus.RUNNING and trading_mode == "PAPER":
+                now = datetime.utcnow()
+                time_since_last_check = (now - last_position_check).total_seconds()
+                
+                if time_since_last_check >= position_check_interval:
+                    try:
+                        # Get current prices for ALL open positions (not just top coins)
+                        open_positions = trading_state.get_open_positions()
+                        if open_positions:
+                            # Get top coins for fast price lookup
+                            try:
+                                top_coins = market_data.get_top_coins(top_n=top_n, min_volume=min_volume)
+                            except:
+                                top_coins = []
+                            
                             current_prices = {}
                             
                             for symbol, _ in open_positions.items():
-                                # Find price from top_coins or fetch individually
+                                # First try to find in top_coins (fastest)
                                 coin_data = next((c for c in top_coins if c["symbol"] == symbol), None)
                                 if coin_data:
                                     price = coin_data.get("lastPrice")
                                     if price and price > 0:
                                         current_prices[symbol] = Decimal(str(price))
-                                else:
-                                    # Fetch price individually if not in top coins
-                                    try:
-                                        tickers = market_data_client.get_tickers()
-                                        for ticker in tickers:
-                                            if ticker.get("symbol") == symbol:
-                                                price = ticker.get("lastPrice", 0)
-                                                if price and float(price) > 0:
-                                                    current_prices[symbol] = Decimal(str(price))
-                                                break
-                                    except Exception as e:
-                                        logger.warning(f"Could not fetch price for {symbol}: {e}")
+                                        continue
+                                
+                                # If not in top coins, fetch individually
+                                try:
+                                    tickers = market_data_client.get_tickers()
+                                    for ticker in tickers:
+                                        if ticker.get("symbol") == symbol:
+                                            price = ticker.get("lastPrice", 0)
+                                            if price and float(price) > 0:
+                                                current_prices[symbol] = Decimal(str(price))
+                                            break
+                                    else:
+                                        # Symbol not found in tickers - log warning
+                                        logger.warning(f"Symbol {symbol} not found in tickers, cannot check position")
+                                except Exception as e:
+                                    logger.warning(f"Could not fetch price for {symbol}: {e}")
                             
                             if current_prices:
                                 exits = position_monitor.check_positions(current_prices)
                                 if exits:
                                     logger.info(f"Closed {len(exits)} positions: {[e['exit_reason'] for e in exits]}")
-                        except Exception as e:
-                            logger.error(f"Error monitoring positions: {e}", exc_info=True)
-                    
-                except Exception as e:
-                    logger.error(f"Error collecting market data: {e}", exc_info=True)
+                            
+                            last_position_check = now
+                    except Exception as e:
+                        logger.error(f"Error monitoring positions: {e}", exc_info=True)
             
-            # Sleep until next iteration
-            time.sleep(schedule_minutes * 60)
+            # Sleep with shorter interval to allow more frequent position checks
+            # But don't sleep too short to avoid excessive CPU usage
+            sleep_seconds = min(schedule_minutes * 60, position_check_interval)
+            time.sleep(sleep_seconds)
     
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")
