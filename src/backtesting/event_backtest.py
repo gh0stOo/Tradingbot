@@ -105,10 +105,10 @@ class EventBacktest:
         self.trading_state = TradingState(initial_cash=self.initial_equity)
         self.trading_state.enable_trading()
         
-        risk_config_full = {"risk": risk_config, "circuitBreaker": {}}
+        risk_config_full = {"risk": risk_config, "circuitBreaker": {}, "trading": {"leverage": 10}}
         self.risk_engine = RiskEngine(risk_config_full, self.trading_state)
         self.strategy_allocator = StrategyAllocator(risk_config_full, self.trading_state)
-        self.order_executor = OrderExecutor(self.trading_state, None, "PAPER")
+        self.order_executor = OrderExecutor(self.trading_state, None, "PAPER", risk_config_full)
         self.strategies = strategies
         
         # Filter data by date range
