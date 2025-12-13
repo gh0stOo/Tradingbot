@@ -132,8 +132,12 @@ def main():
     # Initialize StrategyAllocator
     strategy_allocator = StrategyAllocator(config, trading_state)
     
-    # Initialize OrderExecutor
-    order_executor = OrderExecutor(trading_state, bybit_client, trading_mode, config)
+    # Initialize Event Queue (before OrderExecutor)
+    from events.queue import EventQueue
+    event_queue = EventQueue()
+    
+    # Initialize OrderExecutor (with event queue for FillEvent publishing)
+    order_executor = OrderExecutor(trading_state, bybit_client, trading_mode, config, event_queue)
     
     # Initialize PositionMonitor
     position_monitor = PositionMonitor(trading_state, bybit_client, trading_mode, config)
@@ -145,7 +149,7 @@ def main():
         TrendContinuationStrategy(config),
     ]
     
-    # Initialize EventLoop
+    # Initialize EventLoop (use existing event_queue)
     event_loop = EventLoop(
         trading_state=trading_state,
         risk_engine=risk_engine,
@@ -155,6 +159,8 @@ def main():
         config=config,
         trading_mode=trading_mode
     )
+    # Share event_queue with order_executor
+    order_executor.event_queue = event_loop.event_queue
     
     # Initialize MarketData
     market_data = MarketData(market_data_client)
@@ -172,11 +178,81 @@ def main():
     
     logger.info("Event-driven trading bot initialized. Starting main loop...")
     
+    # Initialize WebSocket client for LIVE/TESTNET trading
+    websocket_client = None
+    if trading_mode != "PAPER" and bybit_client and bybit_client.api_key and bybit_client.api_secret:
+        try:
+            def on_order_update(order_data: Dict) -> None:
+                """Handle order update from WebSocket"""
+                try:
+                    # Map Bybit order data to FillEvent
+                    order_status = order_data.get("orderStatus", "")
+                    if order_status in ["Filled", "PartiallyFilled"]:
+                        fill_event = FillEvent(
+                            client_order_id=order_data.get("orderLinkId", ""),
+                            exchange_order_id=order_data.get("orderId", ""),
+                            symbol=order_data.get("symbol", ""),
+                            side=order_data.get("side", ""),
+                            filled_quantity=Decimal(str(order_data.get("cumExecQty", 0))),
+                            filled_price=Decimal(str(order_data.get("avgPrice", 0))),
+                            fill_time=datetime.utcnow(),
+                            is_partial=order_status == "PartiallyFilled",
+                            remaining_quantity=Decimal(str(order_data.get("leavesQty", 0))),
+                            source="BybitWebSocket"
+                        )
+                        event_loop.publish_event(fill_event)
+                        logger.info(f"FillEvent published from WebSocket: {order_data.get('orderLinkId')}")
+                except Exception as e:
+                    logger.error(f"Error processing order update: {e}", exc_info=True)
+            
+            def on_position_update(position_data: Dict) -> None:
+                """Handle position update from WebSocket"""
+                try:
+                    # Map Bybit position data to PositionUpdateEvent
+                    position_update = PositionUpdateEvent(
+                        symbol=position_data.get("symbol", ""),
+                        side=position_data.get("side", ""),
+                        quantity=Decimal(str(position_data.get("size", 0))),
+                        entry_price=Decimal(str(position_data.get("avgPrice", 0))),
+                        current_price=Decimal(str(position_data.get("markPrice", 0))),
+                        unrealized_pnl=Decimal(str(position_data.get("unrealisedPnl", 0))),
+                        realized_pnl=Decimal(str(position_data.get("cumRealisedPnl", 0))) if position_data.get("cumRealisedPnl") else None,
+                        position_status="open" if Decimal(str(position_data.get("size", 0))) > 0 else "closed",
+                        update_type="modified",
+                        source="BybitWebSocket"
+                    )
+                    event_loop.publish_event(position_update)
+                    logger.debug(f"PositionUpdateEvent published from WebSocket: {position_data.get('symbol')}")
+                except Exception as e:
+                    logger.error(f"Error processing position update: {e}", exc_info=True)
+            
+            def on_websocket_error(error: Exception) -> None:
+                """Handle WebSocket errors"""
+                logger.error(f"WebSocket error: {error}", exc_info=True)
+            
+            websocket_client = BybitWebSocketClient(
+                api_key=bybit_client.api_key,
+                api_secret=bybit_client.api_secret,
+                testnet=(trading_mode == "TESTNET"),
+                on_order_update=on_order_update,
+                on_position_update=on_position_update,
+                on_error=on_websocket_error
+            )
+            
+            # Start WebSocket client
+            websocket_client.start()
+            logger.info("WebSocket client started for real-time updates")
+        
+        except Exception as e:
+            logger.error(f"Failed to initialize WebSocket client: {e}", exc_info=True)
+            logger.warning("Continuing without WebSocket - will rely on reconciliation loop")
+    
     # Main loop
     schedule_minutes = config.get("trading", {}).get("schedule_minutes", 1)
     position_check_interval = config.get("trading", {}).get("position_check_interval_seconds", 10)  # Check positions every 10 seconds
     last_reset_date = datetime.utcnow().date()
     last_position_check = datetime.utcnow()
+    last_reconcile_time = datetime.utcnow()
     
     try:
         while True:
@@ -320,6 +396,10 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error in main loop: {e}", exc_info=True)
     finally:
+        # Stop WebSocket client
+        if websocket_client:
+            websocket_client.stop()
+        
         event_loop.stop()
         logger.info("Event-driven trading bot stopped")
 
