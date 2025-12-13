@@ -170,7 +170,9 @@ def main():
     
     # Main loop
     schedule_minutes = config.get("trading", {}).get("schedule_minutes", 1)
+    position_check_interval = config.get("trading", {}).get("position_check_interval_seconds", 10)  # Check positions every 10 seconds
     last_reset_date = datetime.utcnow().date()
+    last_position_check = datetime.utcnow()
     
     try:
         while True:
