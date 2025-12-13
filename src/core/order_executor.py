@@ -286,7 +286,20 @@ class OrderExecutor:
             if exchange_response and exchange_response.get("orderId"):
                 exchange_order_id = exchange_response["orderId"]
                 order.exchange_order_id = exchange_order_id
-                order.status = exchange_response.get("orderStatus", "submitted")
+                
+                # Get order status explicitly (more reliable than response.orderStatus)
+                order_status = exchange_response.get("orderStatus", "New")
+                
+                # Map Bybit order status to our internal status
+                status_map = {
+                    "New": "submitted",
+                    "PartiallyFilled": "submitted",
+                    "Filled": "filled",
+                    "Cancelled": "cancelled",
+                    "Rejected": "rejected"
+                }
+                order.status = status_map.get(order_status, "submitted")
+                
                 self.trading_state.update_order(
                     order.client_order_id,
                     exchange_order_id=exchange_order_id,
