@@ -131,6 +131,9 @@ def main():
     # Initialize OrderExecutor
     order_executor = OrderExecutor(trading_state, bybit_client, trading_mode, config)
     
+    # Initialize PositionMonitor
+    position_monitor = PositionMonitor(trading_state, bybit_client, trading_mode, config)
+    
     # Initialize Strategies
     strategies = [
         VolatilityExpansionStrategy(config),
@@ -212,6 +215,39 @@ def main():
                     if symbols:
                         logger.info(f"Collecting market data for {len(symbols)} symbols")
                         market_data_collector.collect_and_publish(symbols)
+                        
+                        # Monitor positions and check for exits
+                        try:
+                            # Get current prices for all symbols with open positions
+                            open_positions = trading_state.get_open_positions()
+                            current_prices = {}
+                            
+                            for symbol, _ in open_positions.items():
+                                # Find price from top_coins or fetch individually
+                                coin_data = next((c for c in top_coins if c["symbol"] == symbol), None)
+                                if coin_data:
+                                    price = coin_data.get("lastPrice")
+                                    if price and price > 0:
+                                        current_prices[symbol] = Decimal(str(price))
+                                else:
+                                    # Fetch price individually if not in top coins
+                                    try:
+                                        tickers = market_data_client.get_tickers()
+                                        for ticker in tickers:
+                                            if ticker.get("symbol") == symbol:
+                                                price = ticker.get("lastPrice", 0)
+                                                if price and float(price) > 0:
+                                                    current_prices[symbol] = Decimal(str(price))
+                                                break
+                                    except Exception as e:
+                                        logger.warning(f"Could not fetch price for {symbol}: {e}")
+                            
+                            if current_prices:
+                                exits = position_monitor.check_positions(current_prices)
+                                if exits:
+                                    logger.info(f"Closed {len(exits)} positions: {[e['exit_reason'] for e in exits]}")
+                        except Exception as e:
+                            logger.error(f"Error monitoring positions: {e}", exc_info=True)
                     
                 except Exception as e:
                     logger.error(f"Error collecting market data: {e}", exc_info=True)
