@@ -131,8 +131,27 @@ class OrderExecutor:
         order.status = "filled"
         self.trading_state.update_order(order.client_order_id, status="filled")
         
-        # Simulate fill
-        filled_price = order.price  # In real scenario, might have slippage
+        # Simulate slippage for more realistic paper trading
+        try:
+            from trading.slippage_model import SlippageModel
+            slippage_model = SlippageModel()
+            order_size_usd = float(order.quantity * order.price)
+            slippage = slippage_model.calculate_slippage(
+                price=float(order.price),
+                order_size_usd=order_size_usd,
+                volume_24h_usd=None,  # Would need to fetch from market data for accuracy
+                side=order.side,
+                volatility=None,
+                asset_type="linear"
+            )
+            
+            if order.side == "Buy":
+                filled_price = Decimal(str(float(order.price) + slippage))
+            else:  # Sell
+                filled_price = Decimal(str(float(order.price) - slippage))
+        except Exception as e:
+            logger.warning(f"Error calculating slippage, using entry price: {e}")
+            filled_price = order.price
         fill_event = FillEvent(
             client_order_id=order.client_order_id,
             exchange_order_id=f"PAPER_{order.client_order_id}",
