@@ -46,7 +46,14 @@ class OrderExecutor:
         self.trading_state = trading_state
         self.bybit_client = bybit_client
         self.trading_mode = trading_mode
-        logger.info(f"OrderExecutor initialized (mode: {trading_mode})")
+        
+        # Get leverage from config (default 10x)
+        if config:
+            self.leverage = Decimal(str(config.get("trading", {}).get("leverage", 10)))
+        else:
+            self.leverage = Decimal("10")  # Default 10x leverage
+        
+        logger.info(f"OrderExecutor initialized (mode: {trading_mode}, leverage: {self.leverage}x)")
     
     def execute_approved_order(self, approval_event: RiskApprovalEvent) -> Optional[OrderSubmissionEvent]:
         """
