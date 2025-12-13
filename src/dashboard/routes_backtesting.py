@@ -185,7 +185,7 @@ async def _run_actual_backtest(backtest_id: str, start_date: datetime, end_date:
         )
         market_data = MarketData(market_data_client)
         
-        order_executor = OrderExecutor(trading_state, None, "PAPER")
+        order_executor = OrderExecutor(trading_state, None, "PAPER", config)
         
         # Initialize strategies
         strategies = [

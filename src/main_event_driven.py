@@ -128,7 +128,7 @@ def main():
     strategy_allocator = StrategyAllocator(config, trading_state)
     
     # Initialize OrderExecutor
-    order_executor = OrderExecutor(trading_state, bybit_client, trading_mode)
+    order_executor = OrderExecutor(trading_state, bybit_client, trading_mode, config)
     
     # Initialize Strategies
     strategies = [
