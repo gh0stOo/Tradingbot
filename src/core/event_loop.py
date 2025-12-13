@@ -277,18 +277,28 @@ class EventLoop:
     def _handle_position_update(self, event: PositionUpdateEvent) -> None:
         """Handle position update from exchange"""
         try:
-            if event.status == "Closed":
+            # Check position status (using position_status field)
+            if event.position_status == "closed" or event.quantity == Decimal("0"):
                 # Position closed by exchange (e.g., via SL/TP)
-                self.trading_state.close_position(event.symbol)
-                logger.info(f"Position closed by exchange: {event.symbol}")
-            else:
-                # Update position
                 existing_position = self.trading_state.get_position(event.symbol)
                 if existing_position:
-                    self.trading_state.update_position(
-                        event.symbol,
+                    realized_pnl = event.realized_pnl if event.realized_pnl else Decimal("0")
+                    self.trading_state.close_position(event.symbol, realized_pnl=realized_pnl)
+                    logger.info(f"Position closed by exchange: {event.symbol}, realized_pnl={realized_pnl}")
+            else:
+                # Update position - close and recreate with new values
+                existing_position = self.trading_state.get_position(event.symbol)
+                if existing_position:
+                    # Close existing
+                    self.trading_state.close_position(event.symbol, realized_pnl=Decimal("0"))
+                    # Recreate with updated values
+                    self.trading_state.add_position(
+                        symbol=event.symbol,
+                        side=event.side,
                         quantity=event.quantity,
-                        entry_price=event.entry_price if event.entry_price else existing_position.entry_price
+                        entry_price=event.entry_price if event.entry_price > 0 else existing_position.entry_price,
+                        stop_loss=existing_position.stop_loss,
+                        take_profit=existing_position.take_profit
                     )
                     logger.debug(f"Position updated: {event.symbol}")
         
