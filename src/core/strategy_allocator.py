@@ -35,7 +35,7 @@ class StrategyAllocator:
         self.config = config
         self.strategies_config = config.get("strategies", {})
         self.trading_state = trading_state
-        self.position_sizer = PositionSizer()
+        self.position_sizer = PositionSizer(config)
         
         # Track trades per strategy per day
         self._trades_per_strategy_today: Dict[str, int] = {}

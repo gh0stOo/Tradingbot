@@ -179,7 +179,7 @@ class OrderExecutor:
         
         # Calculate entry fee
         entry_notional = order.quantity * filled_price
-        entry_fee = entry_notional * Decimal("0.001")  # 0.1% taker fee
+        entry_fee = entry_notional * self.taker_fee_rate
         margin_required = entry_notional / self.leverage
         
         # Debit cash (margin + entry fee)

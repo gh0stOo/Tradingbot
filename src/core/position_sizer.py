@@ -77,15 +77,17 @@ class PositionSizer:
             # Calculate quantity accounting for fees
             quantity = risk_amount / effective_risk_per_unit if effective_risk_per_unit > 0 else Decimal("0")
             
-            # Ensure minimum quantity (asset-specific minimums would be better, but use conservative default)
-            min_quantity = Decimal("0.001")  # Could be made configurable per asset
+            # Use configured minimums
+            min_quantity = self.min_quantity
+            min_trade_value = self.min_trade_value
+            
+            # Ensure minimum quantity
             if quantity < min_quantity:
                 logger.debug(f"Calculated quantity {quantity} too small (min: {min_quantity}), returning 0")
                 return Decimal("0")
             
-            # Also check if quantity would result in trade value too small (e.g., < $10)
+            # Also check if quantity would result in trade value too small
             trade_value = quantity * entry_price
-            min_trade_value = Decimal("10")  # Minimum $10 trade value
             if trade_value < min_trade_value:
                 logger.debug(f"Trade value {trade_value} too small (min: {min_trade_value}), returning 0")
                 return Decimal("0")

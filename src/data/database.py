@@ -1,32 +1,41 @@
-"""SQLite Database Module - Schema and Connection Management"""
+"""SQLite Database Module - Schema and Connection Management with Thread-Safe Writer Queue"""
 
 import sqlite3
 from pathlib import Path
 from typing import Optional, Dict, Any
 import json
 import logging
+import queue
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class Database:
-    """SQLite Database Manager for Trading Bot"""
+    """SQLite Database Manager for Trading Bot with Thread-Safe Writer Queue"""
 
     def __init__(self, db_path: str = "data/trading.db"):
         """
-        Initialize Database
+        Initialize Database with Thread-Safe Writer Queue
 
         Args:
             db_path: Path to SQLite database file
         """
         self.db_path = db_path
         self.connection: Optional[sqlite3.Connection] = None
+        self._shutdown = False
+
+        # Writer queue for thread-safe writes
+        self.write_queue = queue.Queue()
+        self.writer_thread = None
 
         # Ensure data directory exists
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         self._init_connection()
         self._create_schema()
+        self._start_writer_thread()
 
     def _init_connection(self):
         """Initialize database connection"""
@@ -37,6 +46,38 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Database connection error: {e}")
             raise
+
+    def _start_writer_thread(self):
+        """Start background writer thread for thread-safe writes"""
+        self.writer_thread = threading.Thread(target=self._write_worker, daemon=False)
+        self.writer_thread.start()
+        logger.info("Writer thread started")
+
+    def _write_worker(self):
+        """Background worker thread processing write queue"""
+        while not self._shutdown:
+            try:
+                # Get item from queue with timeout to allow shutdown
+                query, params = self.write_queue.get(timeout=1.0)
+
+                if query is None:  # Shutdown signal
+                    break
+
+                # Execute write operation
+                try:
+                    cursor = self.connection.cursor()
+                    if params:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+                    self.connection.commit()
+                except sqlite3.Error as e:
+                    logger.error(f"Write worker error: {e}")
+                    self.connection.rollback()
+
+                self.write_queue.task_done()
+            except queue.Empty:
+                continue
 
     def _create_schema(self):
         """Create database schema"""
@@ -68,7 +109,7 @@ class Database:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Add trading_mode column if it doesn't exist (migration)
             try:
                 cursor.execute("ALTER TABLE trades ADD COLUMN trading_mode TEXT DEFAULT 'PAPER' CHECK(trading_mode IN ('PAPER', 'LIVE', 'TESTNET'))")
@@ -157,31 +198,38 @@ class Database:
 
     def execute(self, query: str, params: tuple = None):
         """
-        Execute query
+        Execute write query (INSERT, UPDATE, DELETE) through writer queue
 
         Args:
             query: SQL query
             params: Query parameters
 
         Returns:
-            Cursor object
+            Query result or None for writes
         """
-        try:
-            cursor = self.connection.cursor()
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            self.connection.commit()
-            return cursor
-        except sqlite3.Error as e:
-            logger.error(f"Query execution error: {e}")
-            self.connection.rollback()
-            raise
+        # Check if this is a write operation
+        is_write = query.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE'))
+
+        if is_write:
+            # Queue write operation
+            self.write_queue.put((query, params))
+            return None
+        else:
+            # Execute read directly
+            try:
+                cursor = self.connection.cursor()
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                return cursor
+            except sqlite3.Error as e:
+                logger.error(f"Query execution error: {e}")
+                raise
 
     def fetch_one(self, query: str, params: tuple = None) -> Optional[Dict[str, Any]]:
         """
-        Fetch single row
+        Fetch single row (read operation)
 
         Args:
             query: SQL query
@@ -204,7 +252,7 @@ class Database:
 
     def fetch_all(self, query: str, params: tuple = None) -> list:
         """
-        Fetch all rows
+        Fetch all rows (read operation)
 
         Args:
             query: SQL query
@@ -225,8 +273,28 @@ class Database:
             logger.error(f"Fetch error: {e}")
             raise
 
+    def flush_writes(self, timeout: float = 5.0):
+        """
+        Wait for all pending writes to complete
+
+        Args:
+            timeout: Maximum seconds to wait
+        """
+        try:
+            self.write_queue.join()
+        except Exception as e:
+            logger.error(f"Error flushing writes: {e}")
+
     def close(self):
-        """Close database connection"""
+        """Close database connection and writer thread"""
+        # Signal writer thread to shutdown
+        self._shutdown = True
+        self.write_queue.put((None, None))
+
+        # Wait for writer thread to finish
+        if self.writer_thread and self.writer_thread.is_alive():
+            self.writer_thread.join(timeout=5.0)
+
         if self.connection:
             self.connection.close()
             logger.info("Database connection closed")

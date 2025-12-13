@@ -39,7 +39,7 @@ class PositionMonitor:
         self.config = config or {}
         
         # Fee settings
-        self.taker_fee = Decimal(str(self.config.get("trading", {}).get("takerFee", 0.001)))  # 0.1%
+        self.taker_fee = Decimal(str(self.config.get("risk", {}).get("takerFee", 0.001)))  # 0.1% - use risk config
         
         logger.info("PositionMonitor initialized")
     
