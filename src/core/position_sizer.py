@@ -71,8 +71,7 @@ class PositionSizer:
             # Fee reduces the available risk capital
             # If we want to risk X, and fee is F, we need: X = quantity * risk_per_unit + quantity * entry_price * fee_rate
             # Solving for quantity: quantity = X / (risk_per_unit + entry_price * fee_rate)
-            taker_fee_rate = Decimal("0.001")  # 0.1% - TODO: Get from config
-            effective_risk_per_unit = risk_per_unit + (entry_price * taker_fee_rate)
+            effective_risk_per_unit = risk_per_unit + (entry_price * self.taker_fee_rate)
             
             # Calculate quantity accounting for fees
             quantity = risk_amount / effective_risk_per_unit if effective_risk_per_unit > 0 else Decimal("0")
