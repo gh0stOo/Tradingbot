@@ -166,9 +166,19 @@ def main():
     
     # Main loop
     schedule_minutes = config.get("trading", {}).get("schedule_minutes", 1)
+    last_reset_date = datetime.utcnow().date()
     
     try:
         while True:
+            # Check if new day (UTC) - reset daily stats
+            current_date = datetime.utcnow().date()
+            if current_date != last_reset_date:
+                logger.info("New day detected, resetting daily stats")
+                trading_state.reset_daily_stats()
+                risk_engine._reset_daily_counters_if_needed()
+                strategy_allocator._reset_daily_counters_if_needed()
+                last_reset_date = current_date
+            
             # Check bot state
             current_status = bot_state_manager.get_status()
             
