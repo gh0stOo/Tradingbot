@@ -12,10 +12,14 @@ from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
 from typing import Optional
 from integrations.bybit import BybitClient
+from integrations.bybit_websocket import BybitWebSocketClient
 from trading.market_data import MarketData
 from trading.market_data_collector import MarketDataCollector
 from data.database import Database
 from dashboard.bot_state_manager import BotStateManager, BotStatus
+from events.fill_event import FillEvent
+from events.position_update_event import PositionUpdateEvent
+from decimal import Decimal
 
 # Event-driven components
 from core.trading_state import TradingState

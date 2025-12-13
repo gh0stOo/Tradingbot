@@ -132,6 +132,12 @@ class EventLoop:
         # RiskApprovalEvent -> OrderExecutor -> OrderSubmissionEvent
         self.dispatcher.register_handler(RiskApprovalEvent, self._handle_risk_approval, priority=70)
         
+        # FillEvent -> Update position and cash
+        self.dispatcher.register_handler(FillEvent, self._handle_fill_event, priority=60)
+        
+        # PositionUpdateEvent -> Update trading state
+        self.dispatcher.register_handler(PositionUpdateEvent, self._handle_position_update, priority=50)
+        
         # KillSwitchEvent -> Disable trading
         self.dispatcher.register_handler(KillSwitchEvent, self._handle_kill_switch, priority=200)
     
@@ -194,6 +200,100 @@ class EventLoop:
                     pass  # Fill event would be created in OrderExecutor
         except Exception as e:
             logger.error(f"Error executing order: {e}", exc_info=True)
+    
+    def _handle_fill_event(self, event: FillEvent) -> None:
+        """Handle fill event - create/update position"""
+        try:
+            from decimal import Decimal
+            
+            # Get order from state
+            order = self.trading_state.get_order(event.client_order_id)
+            if not order:
+                logger.warning(f"FillEvent for unknown order: {event.client_order_id}")
+                return
+            
+            # Update order status
+            self.trading_state.update_order(event.client_order_id, status="filled")
+            
+            # Create or update position
+            existing_position = self.trading_state.get_position(event.symbol)
+            
+            if existing_position:
+                # Update existing position (partial fill or adding to position)
+                if event.side == existing_position.side:
+                    # Same direction - add to position
+                    total_quantity = existing_position.quantity + event.filled_quantity
+                    # Recalculate average entry price
+                    total_cost = (existing_position.entry_price * existing_position.quantity) + (event.filled_price * event.filled_quantity)
+                    new_entry_price = total_cost / total_quantity if total_quantity > 0 else existing_position.entry_price
+                    
+                    self.trading_state.update_position(
+                        event.symbol,
+                        quantity=total_quantity,
+                        entry_price=new_entry_price
+                    )
+                else:
+                    # Opposite direction - reduce or close position
+                    if event.filled_quantity >= existing_position.quantity:
+                        # Close position
+                        self.trading_state.close_position(event.symbol)
+                    else:
+                        # Reduce position
+                        new_quantity = existing_position.quantity - event.filled_quantity
+                        self.trading_state.update_position(
+                            event.symbol,
+                            quantity=new_quantity
+                        )
+            else:
+                # Create new position
+                from core.trading_state import Position
+                from datetime import datetime
+                
+                # Get stop loss and take profit from order metadata
+                stop_loss = order.metadata.get("stop_loss") if order.metadata else None
+                take_profit = order.metadata.get("take_profit") if order.metadata else None
+                
+                position = Position(
+                    symbol=event.symbol,
+                    side=event.side,
+                    quantity=event.filled_quantity,
+                    entry_price=event.filled_price,
+                    entry_time=event.fill_time,
+                    stop_loss=Decimal(str(stop_loss)) if stop_loss else None,
+                    take_profit=Decimal(str(take_profit)) if take_profit else None
+                )
+                
+                self.trading_state.add_position(event.symbol, position)
+            
+            # Update cash (margin + fees)
+            # This is handled in OrderExecutor for paper trading
+            # For live trading, exchange handles this, but we track it
+            
+            logger.info(f"Position updated for {event.symbol} after fill: {event.filled_quantity} @ {event.filled_price}")
+        
+        except Exception as e:
+            logger.error(f"Error handling fill event: {e}", exc_info=True)
+    
+    def _handle_position_update(self, event: PositionUpdateEvent) -> None:
+        """Handle position update from exchange"""
+        try:
+            if event.status == "Closed":
+                # Position closed by exchange (e.g., via SL/TP)
+                self.trading_state.close_position(event.symbol)
+                logger.info(f"Position closed by exchange: {event.symbol}")
+            else:
+                # Update position
+                existing_position = self.trading_state.get_position(event.symbol)
+                if existing_position:
+                    self.trading_state.update_position(
+                        event.symbol,
+                        quantity=event.quantity,
+                        entry_price=event.entry_price if event.entry_price else existing_position.entry_price
+                    )
+                    logger.debug(f"Position updated: {event.symbol}")
+        
+        except Exception as e:
+            logger.error(f"Error handling position update: {e}", exc_info=True)
     
     def _handle_kill_switch(self, event: KillSwitchEvent) -> None:
         """Handle kill switch - disable trading"""
