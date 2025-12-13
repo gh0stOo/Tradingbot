@@ -131,6 +131,11 @@ class PositionMonitor:
         Returns:
             Dict with exit information or None if close failed
         """
+        # Validate inputs
+        if exit_price <= 0:
+            logger.error(f"Invalid exit price {exit_price} for position {position.symbol}")
+            return None
+        
         try:
             # Calculate realized PnL
             if position.side == "Buy":
