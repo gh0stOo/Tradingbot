@@ -174,9 +174,10 @@ class StrategyAllocator:
                     logger.warning(f"Position size calculated as 0 for {signal.symbol}, skipping order intent")
                     return None
                 
-                # Additional validation: check minimum quantity and trade value
-                min_quantity = Decimal("0.001")  # Minimum quantity threshold
-                min_trade_value = Decimal("10")  # Minimum $10 trade value
+                # Additional validation: check minimum quantity and trade value (from config)
+                risk_config = self.config.get("risk", {})
+                min_quantity = Decimal(str(risk_config.get("minQuantity", 0.001)))
+                min_trade_value = Decimal(str(risk_config.get("minTradeValue", 10)))
                 trade_value = quantity * signal.entry_price
                 
                 if quantity < min_quantity or trade_value < min_trade_value:
