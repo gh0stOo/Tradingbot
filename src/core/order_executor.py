@@ -72,14 +72,18 @@ class OrderExecutor:
         intent = approval_event.original_intent
         
         # Generate deterministic client order ID for idempotency
-        # Use event_id from original_intent as base for deterministic ID
-        # This ensures same intent always gets same client_order_id
+        # Use signal_event_id from intent (which comes from original signal)
+        # This ensures same signal always gets same client_order_id
         import hashlib
-        if intent.event_id:
+        if intent.signal_event_id:
+            # Use signal event ID as base (deterministic)
+            base_id = intent.signal_event_id
+        elif intent.event_id:
+            # Fallback to intent event_id
             base_id = intent.event_id
         else:
-            # Fallback: create deterministic ID from intent properties
-            intent_str = f"{intent.symbol}_{intent.side}_{float(intent.entry_price):.8f}_{float(intent.quantity):.8f}_{intent.strategy_name}"
+            # Last resort: create deterministic ID from intent properties (without quantity/price which may vary)
+            intent_str = f"{intent.symbol}_{intent.side}_{intent.strategy_name}"
             base_id = hashlib.md5(intent_str.encode()).hexdigest()[:16]
         
         client_order_id = f"ORDER_{base_id}"
@@ -174,6 +178,28 @@ class OrderExecutor:
             source="OrderExecutor",
         )
         
+        # Calculate entry fee
+        entry_notional = order.quantity * filled_price
+        entry_fee = entry_notional * Decimal("0.001")  # 0.1% taker fee
+        margin_required = entry_notional / self.leverage
+        
+        # Debit cash (margin + entry fee)
+        total_debit = margin_required + entry_fee
+        if not self.trading_state.debit_cash(total_debit):
+            logger.error(f"Insufficient cash for order {order.client_order_id}")
+            order.status = "rejected"
+            self.trading_state.update_order(order.client_order_id, status="rejected")
+            return OrderSubmissionEvent(
+                client_order_id=order.client_order_id,
+                symbol=order.symbol,
+                side=order.side,
+                quantity=order.quantity,
+                price=filled_price,
+                status="rejected",
+                rejection_reason="Insufficient cash",
+                source="OrderExecutor",
+            )
+        
         # Update state with position
         self.trading_state.add_position(
             symbol=order.symbol,
@@ -185,12 +211,10 @@ class OrderExecutor:
             position_id=order.client_order_id,
         )
         
-        # Debit cash (for long positions, we need margin)
-        notional_value = order.quantity * filled_price
-        margin_required = notional_value / self.leverage
-        self.trading_state.debit_cash(margin_required)
-        
-        logger.info(f"Paper order executed: {order.client_order_id} {order.symbol} {order.side} {order.quantity}")
+        logger.info(
+            f"Paper order executed: {order.client_order_id} {order.symbol} {order.side} {order.quantity} "
+            f"@ {filled_price}, margin: {margin_required}, fee: {entry_fee}"
+        )
         
         return OrderSubmissionEvent(
             client_order_id=order.client_order_id,

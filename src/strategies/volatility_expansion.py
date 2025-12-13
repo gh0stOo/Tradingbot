@@ -94,8 +94,25 @@ class VolatilityExpansionStrategy(BaseStrategy):
             is_expansion = expansion_ratio >= self.expansion_threshold
             
             # Check for Range Break
-            current_high = df["high"].iloc[-1]
-            current_low = df["low"].iloc[-1]
+            # Use current_price from market_event (most recent price)
+            # For high/low, use the last candle's data (current candle not yet closed)
+            # This is acceptable as we're checking for breakouts of the range
+            current_high = df["high"].iloc[-1] if len(df) > 0 else current_price
+            current_low = df["low"].iloc[-1] if len(df) > 0 else current_price
+            
+            # For breakout detection, check if current_price exceeds the range
+            # This ensures we use the most recent price, not a potentially stale candle close
+            price_breakout_up = current_price > high * Decimal("1.001")
+            price_breakout_down = current_price < low * Decimal("0.999")
+            
+            # Also check candle-based breakout for confirmation
+            candle_breakout_up = current_high > high * Decimal("1.001")
+            candle_breakout_down = current_low < low * Decimal("0.999")
+            
+            # Require both price AND candle breakout for confirmation
+            is_breakout_up = price_breakout_up and candle_breakout_up
+            is_breakout_down = price_breakout_down and candle_breakout_down
+            
             is_breakout_up = current_high > high * Decimal("1.001")  # 0.1% breakout
             is_breakout_down = current_low < low * Decimal("0.999")  # 0.1% breakdown
             

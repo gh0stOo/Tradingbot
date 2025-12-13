@@ -23,6 +23,7 @@ from core.risk_engine import RiskEngine
 from core.strategy_allocator import StrategyAllocator
 from core.order_executor import OrderExecutor
 from core.event_loop import EventLoop
+from core.position_monitor import PositionMonitor
 
 # Strategies
 from strategies.volatility_expansion import VolatilityExpansionStrategy
