@@ -283,14 +283,14 @@ class EventLoop:
                 existing_position = self.trading_state.get_position(event.symbol)
                 if existing_position:
                     realized_pnl = event.realized_pnl if event.realized_pnl else Decimal("0")
-                    self.trading_state.close_position(event.symbol, realized_pnl=realized_pnl)
+                    self.trading_state.remove_position(event.symbol, realized_pnl=realized_pnl)
                     logger.info(f"Position closed by exchange: {event.symbol}, realized_pnl={realized_pnl}")
             else:
-                # Update position - close and recreate with new values
+                # Update position - remove and recreate with new values
                 existing_position = self.trading_state.get_position(event.symbol)
                 if existing_position:
-                    # Close existing
-                    self.trading_state.close_position(event.symbol, realized_pnl=Decimal("0"))
+                    # Remove existing
+                    self.trading_state.remove_position(event.symbol, realized_pnl=Decimal("0"))
                     # Recreate with updated values
                     self.trading_state.add_position(
                         symbol=event.symbol,

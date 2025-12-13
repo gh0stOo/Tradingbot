@@ -130,21 +130,41 @@ class BybitWebSocketClient:
                 topic = data["topic"]
                 topic_data = data.get("data", [])
                 
+                # Validate topic_data is a list
+                if not isinstance(topic_data, list):
+                    logger.warning(f"Invalid topic data format (expected list): {topic_data}")
+                    return
+                
                 if "order" in topic:
                     # Order execution update
                     for order_data in topic_data:
+                        # Validate order_data structure
+                        if not isinstance(order_data, dict):
+                            logger.warning(f"Invalid order data format (expected dict): {order_data}")
+                            continue
                         if self.on_order_update:
                             self.on_order_update(order_data)
                 
                 elif "position" in topic:
                     # Position update
                     for position_data in topic_data:
+                        # Validate position_data structure
+                        if not isinstance(position_data, dict):
+                            logger.warning(f"Invalid position data format (expected dict): {position_data}")
+                            continue
+                        if not position_data.get("symbol"):
+                            logger.warning(f"Position data missing symbol: {position_data}")
+                            continue
                         if self.on_position_update:
                             self.on_position_update(position_data)
                 
                 elif "execution" in topic:
                     # Trade execution (fill)
                     for execution_data in topic_data:
+                        # Validate execution_data structure
+                        if not isinstance(execution_data, dict):
+                            logger.warning(f"Invalid execution data format (expected dict): {execution_data}")
+                            continue
                         if self.on_order_update:
                             self.on_order_update(execution_data)
         
