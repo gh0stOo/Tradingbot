@@ -1,2 +1,0 @@
-cd C:\OpenCode-Infrastructure\Projects\Tradingbot
-python src/main.py

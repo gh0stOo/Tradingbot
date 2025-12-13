@@ -52,3 +52,25 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Documentation files (except README.md)
+*.md
+!README.md
+
+# Temporary/development files
+*.txt
+*.zip
+analyze_code_quality.py
+healthcheck.py
+
+# Database files
+data/*.db
+data/*.sqlite
+
+# Model files (optional, can be regenerated)
+models/*.pkl
+models/*.json
+
+# Logs
+logs/
+*.log
+
