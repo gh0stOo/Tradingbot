@@ -48,12 +48,10 @@ async def run_backtest(request: BacktestRequest) -> Dict[str, Any]:
         
         logger.info(f"Backtest {backtest_id} started via API")
         
-        # TODO: Actually run backtest
-        # This would need to integrate with BacktestEngine
-        
-        # Simulate backtest completion (for now)
+        # Run actual backtest using EventBacktest
         import asyncio
-        asyncio.create_task(_simulate_backtest(backtest_id))
+        import threading
+        asyncio.create_task(_run_actual_backtest(backtest_id, start_date, end_date, request.symbols, request.initial_equity))
         
         return {
             "success": True,
@@ -143,28 +141,124 @@ async def cancel_backtest(backtest_id: str) -> Dict[str, Any]:
     
     return {"success": True, "message": "Backtest abgebrochen"}
 
-async def _simulate_backtest(backtest_id: str):
-    """Simulate backtest progress (for development)"""
+async def _run_actual_backtest(backtest_id: str, start_date: datetime, end_date: datetime, symbols: Optional[List[str]], initial_equity: float):
+    """Run actual backtest using EventBacktest"""
     import asyncio
-    backtest = backtests[backtest_id]
-    for i in range(100):
-        await asyncio.sleep(0.2)
-        backtest["progress"] = i + 1
-        if backtest["status"] != "running":
-            break
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     
-    if backtest["status"] == "running":
-        backtest["status"] = "completed"
-        backtest["results"] = {
-            "totalPnL": 1250.50,
-            "winRate": 65.5,
-            "totalTrades": 142,
-            "winningTrades": 93,
-            "losingTrades": 49,
-            "sharpeRatio": 1.85,
-            "maxDrawdown": 8.5,
-            "profitFactor": 2.1,
-            "averageWin": 45.20,
-            "averageLoss": -22.10
-        }
+    try:
+        backtest = backtests[backtest_id]
+        backtest["progress"] = 10
+        
+        # Import required modules
+        from utils.config_loader import ConfigLoader
+        from backtesting.event_backtest import EventBacktest
+        from integrations.bybit import BybitClient
+        from trading.market_data import MarketData
+        from core.trading_state import TradingState
+        from core.risk_engine import RiskEngine
+        from core.strategy_allocator import StrategyAllocator
+        from core.order_executor import OrderExecutor
+        from strategies.volatility_expansion import VolatilityExpansionStrategy
+        from strategies.mean_reversion import MeanReversionStrategy
+        from strategies.trend_continuation import TrendContinuationStrategy
+        
+        # Load config
+        config_loader = ConfigLoader()
+        config = config_loader.config
+        
+        # Initialize components
+        trading_state = TradingState(initial_cash=float(initial_equity))
+        trading_state.enable_trading()
+        
+        risk_engine = RiskEngine(config, trading_state)
+        strategy_allocator = StrategyAllocator(config, trading_state)
+        
+        # Create Bybit client (for market data)
+        bybit_config = config.get("bybit", {})
+        market_data_client = BybitClient(
+            api_key=bybit_config.get("testnet_api_key", ""),
+            api_secret=bybit_config.get("testnet_api_secret", ""),
+            testnet=True
+        )
+        market_data = MarketData(market_data_client)
+        
+        order_executor = OrderExecutor(trading_state, None, "PAPER")
+        
+        # Initialize strategies
+        strategies = [
+            VolatilityExpansionStrategy(config),
+            MeanReversionStrategy(config),
+            TrendContinuationStrategy(config),
+        ]
+        
+        backtest["progress"] = 30
+        
+        # Create backtest instance
+        backtest_engine = EventBacktest(
+            trading_state=trading_state,
+            risk_engine=risk_engine,
+            strategy_allocator=strategy_allocator,
+            order_executor=order_executor,
+            strategies=strategies,
+            config=config,
+            market_data=market_data,
+            initial_equity=float(initial_equity)
+        )
+        
+        backtest["progress"] = 50
+        
+        # Run backtest in thread (to not block event loop)
+        def run_in_thread():
+            try:
+                # Get symbols if not provided
+                test_symbols = symbols or ["BTCUSDT"]
+                
+                # Run backtest
+                results = backtest_engine.run(
+                    symbols=test_symbols,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                
+                # Update backtest with results
+                backtest["progress"] = 100
+                backtest["status"] = "completed"
+                backtest["results"] = {
+                    "totalPnL": results.get("total_return", 0) * initial_equity,
+                    "totalReturn": results.get("total_return_pct", 0),
+                    "winRate": 0,  # Would need to calculate from trades
+                    "totalTrades": results.get("num_trades", 0),
+                    "maxDrawdown": results.get("max_drawdown_pct", 0),
+                    "profitFactor": results.get("profit_factor", 0),
+                    "expectancy": results.get("expectancy", 0),
+                    "tailLoss95": results.get("tail_loss_95", 0),
+                    "tailLoss99": results.get("tail_loss_99", 0),
+                    "timeToRecovery": results.get("time_to_recovery_hours", 0),
+                    "tradesPerDay": results.get("trades_per_day", 0),
+                    "equityCurve": results.get("equity_curve", [])
+                }
+            except Exception as e:
+                logger.error(f"Error running backtest {backtest_id}: {e}", exc_info=True)
+                backtest["status"] = "error"
+                backtest["error"] = str(e)
+        
+        # Run in background thread
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+        
+        # Wait for completion (with timeout)
+        thread.join(timeout=300)  # 5 minutes timeout
+        
+        if thread.is_alive():
+            backtest["status"] = "error"
+            backtest["error"] = "Backtest timeout"
+        
+    except Exception as e:
+        logger.error(f"Error in backtest {backtest_id}: {e}", exc_info=True)
+        if backtest_id in backtests:
+            backtests[backtest_id]["status"] = "error"
+            backtests[backtest_id]["error"] = str(e)
 

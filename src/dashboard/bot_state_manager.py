@@ -167,8 +167,19 @@ class BotStateManager:
         with self._state_lock:
             logger.warning("Emergency stop executed")
             self.set_status(BotStatus.STOPPED)
-            # TODO: Close all positions
+            # Close all positions will be handled via TradingState
+            # This is triggered through the API route which has access to TradingState
             return True
+    
+    def get_trading_state_reference(self) -> Optional[Any]:
+        """Get reference to TradingState (set by main.py)"""
+        with self._state_lock:
+            return getattr(self, '_trading_state', None)
+    
+    def set_trading_state_reference(self, trading_state: Any) -> None:
+        """Set reference to TradingState"""
+        with self._state_lock:
+            self._trading_state = trading_state
     
     def _format_uptime(self, seconds: int) -> str:
         """Format uptime in seconds to human readable string"""

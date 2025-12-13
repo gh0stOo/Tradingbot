@@ -75,7 +75,8 @@ async def stop_bot() -> Dict[str, Any]:
         
         logger.info("Bot stop requested via API")
         
-        # TODO: Actually stop the bot process
+        # Bot stop is handled by BotStateManager
+        # main_event_driven.py checks the status and stops execution
         
         return {"success": True, "message": "Bot gestoppt"}
     except Exception as e:
@@ -98,7 +99,8 @@ async def pause_bot() -> Dict[str, Any]:
         
         logger.info("Bot pause requested via API")
         
-        # TODO: Actually pause the bot process
+        # Bot pause is handled by BotStateManager
+        # main_event_driven.py checks the status and pauses execution
         
         return {"success": True, "message": "Bot pausiert"}
     except Exception as e:
@@ -121,7 +123,8 @@ async def resume_bot() -> Dict[str, Any]:
         
         logger.info("Bot resume requested via API")
         
-        # TODO: Actually resume the bot process
+        # Bot resume is handled by BotStateManager
+        # main_event_driven.py checks the status and resumes execution
         
         return {"success": True, "message": "Bot fortgesetzt"}
     except Exception as e:
