@@ -31,7 +31,8 @@ class OrderExecutor:
         self,
         trading_state: TradingState,
         bybit_client: Optional[BybitClient],
-        trading_mode: str
+        trading_mode: str,
+        config: Optional[Dict] = None
     ) -> None:
         """
         Initialize Order Executor.
@@ -40,6 +41,7 @@ class OrderExecutor:
             trading_state: TradingState instance
             bybit_client: BybitClient instance (None for paper trading)
             trading_mode: Trading mode (PAPER, LIVE, TESTNET)
+            config: Configuration dictionary (for leverage setting)
         """
         self.trading_state = trading_state
         self.bybit_client = bybit_client
