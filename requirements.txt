@@ -18,6 +18,7 @@ numpy>=1.24.0
 
 # Bybit API
 ccxt>=4.1.0
+websocket-client>=1.6.0
 
 # Notion Integration
 notion-client>=2.2.0
