@@ -221,6 +221,25 @@ def main():
                 except Exception as e:
                     logger.error(f"Error collecting market data: {e}", exc_info=True)
             
+            # Check risk limits continuously (drawdown, daily loss)
+            if current_status == BotStatus.RUNNING:
+                try:
+                    # Check drawdown limit
+                    drawdown_check = risk_engine._check_drawdown_limit()
+                    if not drawdown_check["passed"]:
+                        logger.critical(f"Drawdown limit breached: {drawdown_check['reason']}")
+                        risk_engine._trigger_kill_switch(drawdown_check["reason"])
+                        trading_state.disable_trading()
+                    
+                    # Check max daily loss
+                    daily_loss_check = risk_engine._check_max_daily_loss()
+                    if not daily_loss_check["passed"]:
+                        logger.critical(f"Max daily loss breached: {daily_loss_check['reason']}")
+                        risk_engine._trigger_kill_switch(daily_loss_check["reason"])
+                        trading_state.disable_trading()
+                except Exception as e:
+                    logger.error(f"Error checking risk limits: {e}", exc_info=True)
+            
             # Monitor positions more frequently (every position_check_interval seconds)
             # IMPORTANT: Only monitor positions for PAPER trading
             # For LIVE trading, exchange handles stop-loss/take-profit orders

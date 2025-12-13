@@ -113,9 +113,6 @@ class VolatilityExpansionStrategy(BaseStrategy):
             is_breakout_up = price_breakout_up and candle_breakout_up
             is_breakout_down = price_breakout_down and candle_breakout_down
             
-            is_breakout_up = current_high > high * Decimal("1.001")  # 0.1% breakout
-            is_breakout_down = current_low < low * Decimal("0.999")  # 0.1% breakdown
-            
             signals: List[SignalEvent] = []
             
             # Bullish signal: Compression + Expansion + Upward Breakout

@@ -98,8 +98,15 @@ class StrategyAllocator:
             # Convert signal to order intent
             order_intent = self._create_order_intent(best_signal)
             if order_intent:
+                # Double-check max positions (prevent race condition)
+                current_positions_check = len(self.trading_state.get_open_positions())
+                if current_positions_check >= max_positions:
+                    logger.debug(f"Skipping {symbol}: max positions reached during processing")
+                    continue
+                
                 order_intents.append(order_intent)
-                # Increment counter
+                current_position_count += 1  # Increment local counter
+                # Increment strategy counter
                 self._trades_per_strategy_today[best_signal.strategy_name] = \
                     self._trades_per_strategy_today.get(best_signal.strategy_name, 0) + 1
         

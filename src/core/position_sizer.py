@@ -64,11 +64,18 @@ class PositionSizer:
                 logger.warning("Invalid risk per unit (must be positive)")
                 return Decimal("0")
             
-            # Calculate risk amount
+            # Calculate risk amount (excluding fees for now, we'll account for them)
             risk_amount = equity * max_risk_pct
             
-            # Calculate quantity
-            quantity = risk_amount / risk_per_unit
+            # Account for entry fee in risk calculation
+            # Fee reduces the available risk capital
+            # If we want to risk X, and fee is F, we need: X = quantity * risk_per_unit + quantity * entry_price * fee_rate
+            # Solving for quantity: quantity = X / (risk_per_unit + entry_price * fee_rate)
+            taker_fee_rate = Decimal("0.001")  # 0.1% - TODO: Get from config
+            effective_risk_per_unit = risk_per_unit + (entry_price * taker_fee_rate)
+            
+            # Calculate quantity accounting for fees
+            quantity = risk_amount / effective_risk_per_unit if effective_risk_per_unit > 0 else Decimal("0")
             
             # Ensure minimum quantity (asset-specific minimums would be better, but use conservative default)
             min_quantity = Decimal("0.001")  # Could be made configurable per asset

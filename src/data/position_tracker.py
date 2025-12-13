@@ -12,14 +12,16 @@ logger = logging.getLogger(__name__)
 class PositionTracker:
     """Tracks open and closed positions with PnL calculation"""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, fee_rate: float = 0.001):
         """
         Initialize Position Tracker
 
         Args:
             db: Database instance
+            fee_rate: Trading fee rate (default 0.1% = 0.001)
         """
         self.db = db
+        self.fee_rate = fee_rate  # Default 0.1% (0.001)
         self.open_positions: Dict[int, Dict[str, Any]] = {}  # trade_id -> position data
 
     def open_position(
@@ -95,31 +97,43 @@ class PositionTracker:
 
             position = self.open_positions[trade_id]
 
-            # Calculate PnL
+            # Calculate PnL with fees
             side = position["side"]
             quantity = position["quantity"]
             entry_price = position["entry_price"]
 
+            # Gross PnL before fees
             if side == "Buy":
-                realized_pnl = (exit_price - entry_price) * quantity
+                gross_pnl = (exit_price - entry_price) * quantity
             else:  # Sell
-                realized_pnl = (entry_price - exit_price) * quantity
+                gross_pnl = (entry_price - exit_price) * quantity
 
-            success = realized_pnl > 0
+            # Calculate transaction fees
+            entry_fee = entry_price * quantity * self.fee_rate
+            exit_fee = exit_price * quantity * self.fee_rate
+            total_fees = entry_fee + exit_fee
+
+            # Net PnL after fees
+            realized_pnl = gross_pnl - total_fees
+
+            # Success when breakeven or profit (with tolerance for floating point)
+            success = realized_pnl >= -0.0001
 
             # Update position in database
             self.db.execute("""
                 UPDATE trades
                 SET exit_price = ?, exit_time = ?,
                     exit_reason = ?, realized_pnl = ?,
-                    success = ?
+                    fees_paid = ?, success = ?
                 WHERE id = ?
-            """, (exit_price, exit_time, exit_reason, realized_pnl, success, trade_id))
+            """, (exit_price, exit_time, exit_reason, realized_pnl, total_fees, success, trade_id))
 
             position.update({
                 "exit_price": exit_price,
                 "exit_time": exit_time,
                 "exit_reason": exit_reason,
+                "gross_pnl": gross_pnl,
+                "fees_paid": total_fees,
                 "realized_pnl": realized_pnl,
                 "success": success,
                 "status": "closed"

@@ -1,7 +1,7 @@
 """Risk Management Module"""
 
 from typing import Dict, Optional, Any
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 import logging
 
 from utils.exceptions import CalculationError, ValidationError
@@ -71,11 +71,12 @@ class RiskManager:
         min_order_qty: float,
         historical_win_rate: Optional[float] = None,
         volatility: Optional[float] = None,
-        regime: Optional[Dict[str, Any]] = None
+        regime: Optional[Dict[str, Any]] = None,
+        position_tracker: Optional[Any] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Calculate position size based on risk
-        
+
         Args:
             equity: Account equity
             price: Entry price
@@ -84,7 +85,11 @@ class RiskManager:
             confidence: Signal confidence
             qty_step: Quantity step size
             min_order_qty: Minimum order quantity
-            
+            historical_win_rate: Historical win rate for Kelly Criterion
+            volatility: Current market volatility
+            regime: Market regime dictionary
+            position_tracker: PositionTracker instance for total exposure check
+
         Returns:
             Dictionary with position size details or None if invalid
         """
@@ -152,22 +157,18 @@ class RiskManager:
         # Apply Kelly Criterion if enabled (with regime-based adjustment)
         if self.kelly_config.get("enabled", False):
             # Use historical win rate if available, otherwise use config minWinRate
-            # Confidence can be used as a multiplier but not as win rate itself
             if historical_win_rate is not None and historical_win_rate > 0:
                 base_p = max(historical_win_rate, self.kelly_config.get("minWinRate", 0.40))
             else:
                 # Fallback to config minWinRate if no historical data
                 base_p = self.kelly_config.get("minWinRate", 0.40)
-            
-            # Apply confidence as a multiplier (reduce position size if confidence is low)
-            confidence_multiplier = min(confidence / 0.7, 1.0)  # Normalize to 0.7 = 1.0
-            
+
             # Regime-based Kelly adjustment
             kelly_adjustment = 1.0
             if regime:
                 regime_type = regime.get("type", "unknown")
                 kelly_adjustments = self.kelly_config.get("regimeAdjustments", {})
-                
+
                 if regime_type in kelly_adjustments:
                     kelly_adjustment = kelly_adjustments[regime_type]
                 else:
@@ -178,20 +179,25 @@ class RiskManager:
                         kelly_adjustment = 1.0  # Full Kelly in trending markets
                     elif regime_type == "ranging":
                         kelly_adjustment = 0.85  # Slight reduction in ranging markets
-            
-            p = base_p * confidence_multiplier * kelly_adjustment
-            
+
+            # Apply regime adjustment to win rate for Kelly calculation
+            p = base_p * kelly_adjustment
+
             b = max(rr, self.kelly_config.get("minRR", 1.5))
             q = 1 - p
-            
+
             # Kelly formula: f = (p*b - q) / b
             kelly_fraction = (p * b - q) / b if b > 0 else 0
             kelly_fraction = max(0, min(kelly_fraction, 1))  # Cap at 0-100%
-            
+
             # Apply Kelly fraction with safety multiplier
             kelly_adjusted = kelly_fraction * self.kelly_config.get("fraction", 0.25)
-            
-            base_qty = base_qty * kelly_adjusted
+
+            # Confidence is a SEPARATE modifier for position sizing
+            # Low confidence reduces position size, high confidence allows it
+            confidence_modifier = min(confidence / 0.7, 1.0)  # Normalize to 0.7 = 1.0
+
+            base_qty = base_qty * kelly_adjusted * confidence_modifier
         
         # Round to qty_step
         rounded_qty = (base_qty // qty_step) * qty_step
@@ -200,12 +206,27 @@ class RiskManager:
         if rounded_qty < min_order_qty:
             return None
         
-        # Check max exposure
+        # Check max exposure including existing open positions
         notional_value = rounded_qty * price
         max_exposure = equity * self.risk_config.get("maxExposure", 0.50)
         required_margin = notional_value / self.risk_config.get("leverageMax", 10)
-        
-        if required_margin > max_exposure:
+
+        # Calculate total exposure from all open positions
+        total_exposure = 0.0
+        if position_tracker:
+            open_positions = position_tracker.get_open_positions()
+            for pos in open_positions.values():
+                pos_notional = pos.get("quantity", 0) * pos.get("entry_price", 0)
+                total_exposure += pos_notional
+
+        # Check if new position would exceed max exposure
+        total_required_margin = (total_exposure + notional_value) / self.risk_config.get("leverageMax", 10)
+
+        if total_required_margin > max_exposure:
+            logger.warning(
+                f"Total exposure exceeded: {total_required_margin:.2f} > {max_exposure:.2f} "
+                f"(existing: {total_exposure:.2f}, new: {notional_value:.2f})"
+            )
             return None
         
         return {
@@ -276,16 +297,23 @@ class RiskManager:
                 "size": tp_config.get("size", 0.25)
             })
         
-        # Calculate quantities for each TP level
-        total_allocated = 0.0
+        # Calculate quantities for each TP level using Decimal arithmetic
+        total_allocated = Decimal("0")
+        qty_decimal = Decimal(str(qty))
+
         for i, tp_config in enumerate(tp_configs):
             if i == len(tp_configs) - 1:
-                # Last TP gets remaining quantity
-                tp_qty = qty - total_allocated
+                # Last TP gets remaining quantity (exact remainder)
+                tp_qty = qty_decimal - total_allocated
             else:
-                tp_qty = float(int(qty * tp_config["size"]))
+                # Calculate with Decimal precision, round down
+                tp_size = Decimal(str(tp_config["size"]))
+                tp_qty = (qty_decimal * tp_size).quantize(
+                    Decimal("0.001"),
+                    rounding=ROUND_DOWN
+                )
                 total_allocated += tp_qty
-            
+
             multi_targets[tp_config["key"]] = {
                 "price": tp_config["price"],
                 "qty": float(tp_qty)

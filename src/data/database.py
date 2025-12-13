@@ -63,6 +63,7 @@ class Database:
                     exit_time DATETIME,
                     exit_reason TEXT CHECK(exit_reason IN ('TP', 'SL', 'Manual')),
                     realized_pnl REAL,
+                    fees_paid REAL DEFAULT 0,
                     success BOOLEAN,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
@@ -72,6 +73,14 @@ class Database:
             try:
                 cursor.execute("ALTER TABLE trades ADD COLUMN trading_mode TEXT DEFAULT 'PAPER' CHECK(trading_mode IN ('PAPER', 'LIVE', 'TESTNET'))")
                 logger.info("Added trading_mode column to trades table")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+
+            # Add fees_paid column if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE trades ADD COLUMN fees_paid REAL DEFAULT 0")
+                logger.info("Added fees_paid column to trades table")
             except sqlite3.OperationalError:
                 # Column already exists, ignore
                 pass

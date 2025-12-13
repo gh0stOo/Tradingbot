@@ -517,10 +517,25 @@ class TradingBot:
                 indicators["fundingRate"] = 0.0
             
             price = indicators["currentPrice"]
-            
+
             # Detect regime
             regime = self.regime_detector.detect_regime(indicators, price)
-            
+
+            # PHASE 2.2: Check Circuit Breaker BEFORE processing signals
+            # This prevents even entering signal processing if risk limits exceeded
+            circuit_breaker_status = self.risk_manager.check_circuit_breaker(
+                current_positions=self.current_positions,
+                daily_pnl=self.daily_pnl,
+                equity=equity,
+                loss_streak=self.loss_streak
+            )
+
+            if circuit_breaker_status["tripped"]:
+                self.logger.info(
+                    f"Circuit breaker tripped for {symbol}: {circuit_breaker_status['reason']}"
+                )
+                return None
+
             # Run strategies
             signals = self.strategies.run_all_strategies(
                 indicators,
@@ -570,7 +585,8 @@ class TradingBot:
                 min_order_qty=float(symbol_info.get("minOrderQty", 0.001)),
                 historical_win_rate=historical_win_rate,
                 volatility=indicators.get("volatility"),
-                regime=regime
+                regime=regime,
+                position_tracker=self.position_tracker
             )
             
             if not position:
