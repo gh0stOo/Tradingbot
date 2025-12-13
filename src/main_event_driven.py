@@ -240,6 +240,19 @@ def main():
                 except Exception as e:
                     logger.error(f"Error checking risk limits: {e}", exc_info=True)
             
+            # Reconciliation Loop: Sync orders with exchange state (for LIVE trading)
+            if current_status == BotStatus.RUNNING and trading_mode != "PAPER":
+                now = datetime.utcnow()
+                time_since_last_reconcile = (now - last_reconcile_time).total_seconds()
+                
+                if time_since_last_reconcile >= 60:  # Reconcile every 60 seconds
+                    try:
+                        order_executor.reconcile_orders()
+                        last_reconcile_time = now
+                        logger.debug("Order reconciliation completed")
+                    except Exception as e:
+                        logger.error(f"Error during reconciliation: {e}", exc_info=True)
+            
             # Monitor positions more frequently (every position_check_interval seconds)
             # IMPORTANT: Only monitor positions for PAPER trading
             # For LIVE trading, exchange handles stop-loss/take-profit orders

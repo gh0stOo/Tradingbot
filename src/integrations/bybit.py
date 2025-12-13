@@ -10,7 +10,7 @@ from datetime import datetime
 
 from utils.exceptions import BybitAPIError, APIError, RateLimitError
 from utils.retry import retry_with_backoff
-from integrations.rate_limiter import RateLimiter, RateLimitConfig
+from .rate_limiter import RateLimiter, RateLimitConfig
 
 logger = logging.getLogger(__name__)
 
@@ -262,4 +262,27 @@ class BybitClient:
         endpoint = "/v5/order/create"
         response = self._authenticated_request("POST", endpoint, body=order_data)
         return response.get("result", {})
+    
+    def get_order_status(self, category: str = "linear", order_id: Optional[str] = None, order_link_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get order status (requires authentication)
+        
+        Args:
+            category: Order category (linear, spot, etc.)
+            order_id: Exchange order ID
+            order_link_id: Client order ID (orderLinkId)
+        """
+        endpoint = "/v5/order/history"
+        params = {"category": category, "limit": 1}
+        if order_id:
+            params["orderId"] = order_id
+        if order_link_id:
+            params["orderLinkId"] = order_link_id
+        
+        response = self._authenticated_request("GET", endpoint, params=params)
+        result = response.get("result", {})
+        
+        if result.get("list") and len(result["list"]) > 0:
+            return result["list"][0]
+        return {}
 

@@ -32,7 +32,8 @@ class OrderExecutor:
         trading_state: TradingState,
         bybit_client: Optional[BybitClient],
         trading_mode: str,
-        config: Optional[Dict] = None
+        config: Optional[Dict] = None,
+        event_queue: Optional[Any] = None
     ) -> None:
         """
         Initialize Order Executor.
@@ -410,7 +411,15 @@ class OrderExecutor:
                                     remaining_quantity=order.quantity - Decimal(str(exchange_order.get("cumExecQty", 0))),
                                     source="OrderExecutor",
                                 )
-                                # Note: FillEvent would be published to event queue in full implementation
+                                # Publish FillEvent to event queue
+                                if self.event_queue:
+                                    try:
+                                        self.event_queue.put(fill_event)
+                                        logger.info(f"FillEvent published for order: {client_order_id}")
+                                    except Exception as e:
+                                        logger.error(f"Error publishing FillEvent: {e}", exc_info=True)
+                                else:
+                                    logger.warning(f"FillEvent created but no event_queue available: {client_order_id}")
                                 logger.info(f"Order filled: {client_order_id}")
                 except Exception as e:
                     logger.error(f"Error reconciling order {client_order_id}: {e}", exc_info=True)
