@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtesting - Trading Bot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Bot</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <a href="/" class="nav-item" data-page="dashboard">
+                        <span class="nav-item-icon"><i class="fas fa-home"></i></span>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/live-trading" class="nav-item" data-page="live-trading">
+                        <span class="nav-item-icon"><i class="fas fa-chart-candlestick"></i></span>
+                        <span>Live Trading</span>
+                    </a>
+                    <a href="/bot-control" class="nav-item" data-page="bot-control">
+                        <span class="nav-item-icon"><i class="fas fa-robot"></i></span>
+                        <span>Bot Control</span>
+                    </a>
+                    <a href="/training" class="nav-item" data-page="training">
+                        <span class="nav-item-icon"><i class="fas fa-brain"></i></span>
+                        <span>KI Training</span>
+                    </a>
+                    <a href="/backtesting" class="nav-item active" data-page="backtesting">
+                        <span class="nav-item-icon"><i class="fas fa-chart-line"></i></span>
+                        <span>Backtesting</span>
+                    </a>
+                    <a href="/trade-history" class="nav-item" data-page="trade-history">
+                        <span class="nav-item-icon"><i class="fas fa-history"></i></span>
+                        <span>Trade History</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1 class="header-title">Backtesting</h1>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- New Backtest Form -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Neuen Backtest starten</h2>
+                    </div>
+                    <form id="backtest-form" onsubmit="startBacktest(event)">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-lg);">
+                            <div class="form-group">
+                                <label class="form-label">Start Datum</label>
+                                <input type="date" class="form-input" id="start-date" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">End Datum</label>
+                                <input type="date" class="form-input" id="end-date" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Initial Equity (USD)</label>
+                                <input type="number" class="form-input" id="initial-equity" value="10000" min="1000" step="100" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Symbols (Optional, leer = Top N)</label>
+                                <input type="text" class="form-input" id="symbols" placeholder="BTCUSDT,ETHUSDT">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg" style="margin-top: var(--spacing-lg);">
+                            <i class="fas fa-play"></i>
+                            Backtest Starten
+                        </button>
+                    </form>
+                </div>
+                
+                <!-- Running Backtests -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Laufende Backtests</h2>
+                    </div>
+                    <div id="running-backtests">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">Keine laufenden Backtests</div>
+                    </div>
+                </div>
+                
+                <!-- Backtest Results -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Backtest Ergebnisse</h2>
+                    </div>
+                    <div id="backtest-results">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">Lade Ergebnisse...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Backtest Details Modal -->
+    <div id="backtest-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto;">
+        <div style="background: var(--bg-card); margin: 50px auto; max-width: 1000px; padding: 30px; border-radius: var(--radius-lg);">
+            <div class="flex flex-between mb-3">
+                <h2>Backtest Details</h2>
+                <button onclick="closeBacktestModal()" class="btn btn-secondary">✕ Schließen</button>
+            </div>
+            <div id="backtest-modal-content"></div>
+        </div>
+    </div>
+    
+    <script>
+        async function loadBacktests() {
+            try {
+                const response = await fetch('/api/backtesting/list');
+                const data = await response.json();
+                updateBacktests(data.backtests);
+            } catch (error) {
+                console.error('Error loading backtests:', error);
+            }
+        }
+        
+        function updateBacktests(backtests) {
+            const runningContainer = document.getElementById('running-backtests');
+            const resultsContainer = document.getElementById('backtest-results');
+            
+            const running = backtests.filter(b => b.status === 'running');
+            const completed = backtests.filter(b => b.status === 'completed').sort((a, b) => 
+                new Date(b.created_at) - new Date(a.created_at)
+            );
+            
+            if (running.length === 0) {
+                runningContainer.innerHTML = '<div class="text-center p-4" style="color: var(--text-secondary);">Keine laufenden Backtests</div>';
+            } else {
+                runningContainer.innerHTML = running.map(bt => `
+                    <div class="card mb-2" style="background: var(--bg-secondary);">
+                        <div class="flex flex-between">
+                            <div>
+                                <div style="font-weight: 600;">${bt.id}</div>
+                                <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                                    ${new Date(bt.start_date).toLocaleDateString('de-DE')} - ${new Date(bt.end_date).toLocaleDateString('de-DE')}
+                                </div>
+                            </div>
+                            <div style="flex: 1; margin: 0 var(--spacing-lg);">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
+                                    <span>Progress</span>
+                                    <span>${Math.round(bt.progress)}%</span>
+                                </div>
+                                <div style="background: var(--bg-primary); height: 20px; border-radius: var(--radius-md); overflow: hidden;">
+                                    <div style="background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); height: 100%; width: ${bt.progress}%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <button class="btn btn-danger" onclick="cancelBacktest('${bt.id}')">
+                                <i class="fas fa-times"></i>
+                                Abbrechen
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            if (completed.length === 0) {
+                resultsContainer.innerHTML = '<div class="text-center p-4" style="color: var(--text-secondary);">Keine abgeschlossenen Backtests</div>';
+            } else {
+                resultsContainer.innerHTML = completed.map(bt => {
+                    const results = bt.results || {};
+                    return `
+                        <div class="card mb-2" style="background: var(--bg-secondary);">
+                            <div class="flex flex-between">
+                                <div>
+                                    <div style="font-weight: 600;">${bt.id}</div>
+                                    <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                                        ${new Date(bt.created_at).toLocaleString('de-DE')}
+                                    </div>
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-lg); text-align: center;">
+                                    <div>
+                                        <div style="font-size: 0.875rem; color: var(--text-secondary);">Total PnL</div>
+                                        <div style="font-weight: 600; color: ${(results.totalPnL || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">
+                                            $${(results.totalPnL || 0).toFixed(2)}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.875rem; color: var(--text-secondary);">Win Rate</div>
+                                        <div style="font-weight: 600;">${(results.winRate || 0).toFixed(1)}%</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.875rem; color: var(--text-secondary);">Trades</div>
+                                        <div style="font-weight: 600;">${results.totalTrades || 0}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.875rem; color: var(--text-secondary);">Sharpe</div>
+                                        <div style="font-weight: 600;">${(results.sharpeRatio || 0).toFixed(2)}</div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" onclick="viewBacktestDetails('${bt.id}')">
+                                    <i class="fas fa-eye"></i>
+                                    Details
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+        
+        async function startBacktest(event) {
+            event.preventDefault();
+            try {
+                const startDate = document.getElementById('start-date').value;
+                const endDate = document.getElementById('end-date').value;
+                const initialEquity = parseFloat(document.getElementById('initial-equity').value);
+                const symbolsInput = document.getElementById('symbols').value;
+                const symbols = symbolsInput ? symbolsInput.split(',').map(s => s.trim()) : null;
+                
+                const response = await fetch('/api/backtesting/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start_date: startDate + 'T00:00:00Z',
+                        end_date: endDate + 'T23:59:59Z',
+                        initial_equity: initialEquity,
+                        symbols: symbols
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('Backtest gestartet: ' + data.backtest_id);
+                    loadBacktests();
+                    setInterval(loadBacktests, 2000); // Update frequently
+                    document.getElementById('backtest-form').reset();
+                } else {
+                    alert('Fehler: ' + (data.error || 'Backtest konnte nicht gestartet werden'));
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function cancelBacktest(backtestId) {
+            if (!confirm('Backtest wirklich abbrechen?')) return;
+            try {
+                const response = await fetch(`/api/backtesting/cancel/${backtestId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (data.success) {
+                    loadBacktests();
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function viewBacktestDetails(backtestId) {
+            try {
+                const response = await fetch(`/api/backtesting/results/${backtestId}`);
+                const data = await response.json();
+                
+                const modal = document.getElementById('backtest-modal');
+                const content = document.getElementById('backtest-modal-content');
+                
+                content.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg);">
+                        <div class="stat-card">
+                            <div class="stat-label">Total PnL</div>
+                            <div class="stat-value ${data.totalPnL >= 0 ? 'positive' : 'negative'}">$${data.totalPnL?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Win Rate</div>
+                            <div class="stat-value">${data.winRate?.toFixed(1) || '0'}%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Total Trades</div>
+                            <div class="stat-value">${data.totalTrades || 0}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Sharpe Ratio</div>
+                            <div class="stat-value">${data.sharpeRatio?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Max Drawdown</div>
+                            <div class="stat-value negative">${data.maxDrawdown?.toFixed(2) || '0.00'}%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Profit Factor</div>
+                            <div class="stat-value ${(data.profitFactor || 0) >= 1 ? 'positive' : 'negative'}">${data.profitFactor?.toFixed(2) || '0.00'}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: var(--spacing-lg);">
+                        <div class="table">
+                            <table style="width: 100%;">
+                                <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Winning Trades</td><td>${data.winningTrades || 0}</td></tr>
+                                    <tr><td>Losing Trades</td><td>${data.losingTrades || 0}</td></tr>
+                                    <tr><td>Average Win</td><td>$${data.averageWin?.toFixed(2) || '0.00'}</td></tr>
+                                    <tr><td>Average Loss</td><td>$${data.averageLoss?.toFixed(2) || '0.00'}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                
+                modal.style.display = 'block';
+            } catch (error) {
+                alert('Fehler beim Laden der Details: ' + error.message);
+            }
+        }
+        
+        function closeBacktestModal() {
+            document.getElementById('backtest-modal').style.display = 'none';
+        }
+        
+        // Set default dates
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date();
+            const thirtyDaysAgo = new Date(today);
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            
+            document.getElementById('end-date').value = today.toISOString().split('T')[0];
+            document.getElementById('start-date').value = thirtyDaysAgo.toISOString().split('T')[0];
+            
+            loadBacktests();
+            setInterval(loadBacktests, 5000);
+        });
+    </script>
+</body>
+</html>
+

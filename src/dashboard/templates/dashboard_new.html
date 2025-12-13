@@ -1,0 +1,353 @@
+{% extends "base_neon.html" %}
+
+{% block title %}Dashboard - Trading Bot{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Hero Stats -->
+<div class="stats-grid">
+    <!-- Total PnL Card -->
+    <div class="card card-neon-cyan">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Total PnL (Today)</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-cyan);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+            </div>
+            <div id="pnl-today" class="card-value card-value-neon-cyan">$0.00</div>
+            <div id="pnl-change" class="card-subtitle card-subtitle-positive">+0.0% ↑</div>
+        </div>
+    </div>
+
+    <!-- Win Rate Card -->
+    <div class="card card-neon-magenta">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Win Rate</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-magenta);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+            </div>
+            <div id="win-rate" class="card-value card-value-neon-magenta">0%</div>
+            <div id="win-rate-detail" class="card-subtitle">0 of 0 trades</div>
+        </div>
+    </div>
+
+    <!-- Active Trades Card -->
+    <div class="card card-neon-violet">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Active Trades</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-violet);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div id="active-trades" class="card-value card-value-neon-violet">0</div>
+            <div id="active-trades-detail" class="card-subtitle">0 long, 0 short</div>
+        </div>
+    </div>
+
+    <!-- Equity Balance Card -->
+    <div class="card card-neon-green">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Equity Balance</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-green);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div id="equity" class="card-value card-value-neon-green">$0.00</div>
+            <div id="equity-detail" class="card-subtitle">Initial: $0.00</div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Grid -->
+<div class="dashboard-grid">
+    <!-- Bot Control Panel -->
+    <div class="card card-neon-cyan mb-6">
+        <h2 class="text-lg font-bold mb-6">Bot Control</h2>
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <!-- Start/Stop Button -->
+            <button id="bot-start-btn" onclick="startBot()" class="btn btn-success btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Bot starten
+            </button>
+            <button id="bot-stop-btn" onclick="stopBot()" class="btn btn-primary btn-lg hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z" />
+                </svg>
+                Bot stoppen
+            </button>
+            
+            <!-- Emergency Stop -->
+            <button onclick="emergencyStop()" class="btn btn-danger btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Emergency Stop
+            </button>
+        </div>
+    </div>
+
+    <!-- Active Trades Table -->
+    <div class="card card-neon-cyan mb-6">
+        <h2 class="text-lg font-bold mb-6">Active Trades</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Direction</th>
+                        <th class="text-right">Entry</th>
+                        <th class="text-right">Current</th>
+                        <th class="text-right">PnL</th>
+                        <th>Mode</th>
+                        <th class="text-right">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="active-trades-table">
+                    <tr>
+                        <td colspan="6" class="text-center card-subtitle">Keine aktiven Trades</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Section -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+    <div class="card card-neon-cyan">
+        <h2 class="text-lg font-bold mb-6">Equity Curve</h2>
+        <div style="height: 16rem; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-lg); border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.03);">
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card card-neon-magenta">
+        <h2 class="text-lg font-bold mb-6">Price Movement</h2>
+        <div style="height: 16rem; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-lg); border: 1px solid rgba(255, 0, 255, 0.2); background: rgba(255, 255, 255, 0.03);">
+            <canvas id="priceChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+let equityChart = null;
+let priceChart = null;
+
+// Load dashboard data
+async function loadDashboardData() {
+    try {
+        // Load bot status
+        const statusResponse = await fetch('/api/bot/status');
+        const statusData = await statusResponse.json();
+        updateBotStatus(statusData);
+        
+        // Load stats
+        const statsResponse = await fetch('/api/dashboard/stats');
+        const statsData = await statsResponse.json();
+        updateStats(statsData.allTime || statsData);
+        
+        // Load active positions
+        try {
+            const positionsResponse = await fetch('/api/positions/active');
+            const positionsData = await positionsResponse.json();
+            updateActiveTrades(positionsData);
+        } catch (e) {
+            // Endpoint might not exist, use empty state
+            updateActiveTrades({ positions: [] });
+        }
+        
+        // Load charts
+        loadCharts();
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+    }
+}
+
+function updateBotStatus(status) {
+    const startBtn = document.getElementById('bot-start-btn');
+    const stopBtn = document.getElementById('bot-stop-btn');
+    
+    if (status.status === 'running') {
+        startBtn.classList.add('hidden');
+        stopBtn.classList.remove('hidden');
+    } else {
+        startBtn.classList.remove('hidden');
+        stopBtn.classList.add('hidden');
+    }
+}
+
+function updateStats(stats) {
+    const pnlToday = stats.daily_pnl || stats.totalPnL || 0;
+    const winRate = stats.win_rate || 0;
+    const activeTrades = stats.openTrades || 0;
+    const equity = stats.equity || 10000;
+    
+    document.getElementById('pnl-today').textContent = `$${pnlToday.toFixed(2)}`;
+    document.getElementById('pnl-change').textContent = pnlToday >= 0 ? `+${((pnlToday / 10000) * 100).toFixed(1)}% ↑` : `${((pnlToday / 10000) * 100).toFixed(1)}% ↓`;
+    document.getElementById('pnl-change').className = pnlToday >= 0 ? 'card-subtitle card-subtitle-positive' : 'card-subtitle';
+    
+    document.getElementById('win-rate').textContent = `${(winRate * 100).toFixed(1)}%`;
+    document.getElementById('win-rate-detail').textContent = `${stats.winningTrades || 0} of ${stats.totalTrades || 0} trades`;
+    
+    document.getElementById('active-trades').textContent = activeTrades.toString();
+    
+    document.getElementById('equity').textContent = `$${equity.toFixed(2)}`;
+    document.getElementById('equity-detail').textContent = `Initial: $${(stats.initialEquity || 10000).toFixed(2)}`;
+}
+
+function updateActiveTrades(data) {
+    const tbody = document.getElementById('active-trades-table');
+    
+    // Handle both array format and object with positions property
+    const positions = Array.isArray(data) ? data : (data.positions || []);
+    const positions = data.positions || [];
+    
+    if (positions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center card-subtitle">Keine aktiven Trades</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = positions.map(pos => {
+        const mode = pos.trading_mode || pos.mode || 'PAPER';
+        const modeEmoji = mode === 'PAPER' ? '📄' : mode === 'LIVE' ? '💵' : '🧪';
+        const modeBadge = `<span class="badge" style="background: ${mode === 'PAPER' ? 'rgba(255, 165, 0, 0.2)' : mode === 'LIVE' ? 'rgba(0, 255, 0, 0.2)' : 'rgba(128, 128, 128, 0.2)'}; color: ${mode === 'PAPER' ? '#ffa500' : mode === 'LIVE' ? '#00ff00' : '#808080'};">
+            ${modeEmoji} ${mode}
+        </span>`;
+        
+        return `
+        <tr>
+            <td style="font-weight: 500;">${pos.symbol}</td>
+            <td>
+                <span class="badge ${pos.side === 'Buy' ? 'badge-long' : 'badge-short'}">${pos.side}</span>
+            </td>
+            <td class="text-right">$${(pos.entry_price || 0).toFixed(4)}</td>
+            <td class="text-right">$${(pos.current_price || pos.entry_price || 0).toFixed(4)}</td>
+            <td class="text-right ${(pos.unrealized_pnl || 0) >= 0 ? 'text-positive' : 'text-negative'}">
+                ${(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}$${(pos.unrealized_pnl || 0).toFixed(2)}
+            </td>
+            <td>${modeBadge}</td>
+            <td class="text-right">
+                <span class="badge badge-active">${pos.status || 'Active'}</span>
+            </td>
+        </tr>
+    `}).join('');
+}
+
+async function loadCharts() {
+    try {
+        // Daily performance chart
+        const dailyResponse = await fetch('/api/dashboard/stats/daily?days=30');
+        const dailyData = await dailyResponse.json();
+        
+        const equityCtx = document.getElementById('equityChart').getContext('2d');
+        if (equityChart) equityChart.destroy();
+        
+        equityChart = new Chart(equityCtx, {
+            type: 'line',
+            data: {
+                labels: (dailyData.dailyPerformance || []).map(d => d.date?.split('T')[0] || d.date),
+                datasets: [{
+                    label: 'Equity',
+                    data: (dailyData.dailyPerformance || []).map((d, i, arr) => {
+                        let equity = 10000;
+                        for (let j = 0; j <= i; j++) {
+                            equity += arr[j].pnl || 0;
+                        }
+                        return equity;
+                    }),
+                    borderColor: 'rgb(0, 255, 255)',
+                    backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: { color: 'var(--text-secondary)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    x: {
+                        ticks: { color: 'var(--text-secondary)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading charts:', error);
+    }
+}
+
+async function startBot() {
+    try {
+        const response = await fetch('/api/bot/start', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadDashboardData();
+        } else {
+            alert('Fehler: ' + (data.error || 'Bot konnte nicht gestartet werden'));
+        }
+    } catch (error) {
+        alert('Fehler beim Starten des Bots: ' + error.message);
+    }
+}
+
+async function stopBot() {
+    if (!confirm('Bot wirklich stoppen?')) return;
+    try {
+        const response = await fetch('/api/bot/stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadDashboardData();
+        }
+    } catch (error) {
+        alert('Fehler beim Stoppen des Bots: ' + error.message);
+    }
+}
+
+async function emergencyStop() {
+    if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
+    try {
+        const response = await fetch('/api/bot/emergency-stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            alert('Emergency Stop ausgeführt!');
+            loadDashboardData();
+        }
+    } catch (error) {
+        alert('Fehler beim Emergency Stop: ' + error.message);
+    }
+}
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboardData();
+    // Auto-refresh every 10 seconds
+    setInterval(loadDashboardData, 10000);
+});
+</script>
+{% endblock %}
+

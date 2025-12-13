@@ -1,0 +1,79 @@
+services:
+  # API Server / Dashboard (Port 1337)
+  trading-bot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-bot-api
+    command: python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "1337:8000"  # Host port 1337 -> Container port 8000
+    volumes:
+      # Mount entire project for development
+      - .:/app
+      # Exclude some directories
+      - /app/__pycache__
+      - /app/.git
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
+      - TRADING_DB_PATH=/app/data/trading.db
+      - TRADING_MODE=PAPER
+      - LOG_LEVEL=INFO
+      - UVICORN_RELOAD=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    networks:
+      - trading-bot-network
+    labels:
+      - "com.trading-bot.service=api"
+      - "com.trading-bot.description=Trading Bot API Server & Dashboard"
+
+  # Trading Bot Worker (main.py)
+  trading-bot-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-bot-worker
+    command: python src/main.py
+    volumes:
+      # Mount entire project for development
+      - .:/app
+      # Exclude some directories
+      - /app/__pycache__
+      - /app/.git
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
+      - TRADING_DB_PATH=/app/data/trading.db
+      - TRADING_MODE=PAPER
+      - LOG_LEVEL=INFO
+    restart: on-failure:5  # Restart max 5 times on failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 30s
+    networks:
+      - trading-bot-network
+    # No ports exposed - bot runs internally
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    labels:
+      - "com.trading-bot.service=worker"
+      - "com.trading-bot.description=Trading Bot Worker Process"
+
+networks:
+  trading-bot-network:
+    driver: bridge
+    name: trading-bot-network
+

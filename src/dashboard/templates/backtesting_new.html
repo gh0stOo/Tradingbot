@@ -1,0 +1,207 @@
+{% extends "base_neon.html" %}
+
+{% block title %}Backtesting - Trading Bot{% endblock %}
+{% block page_title %}Backtesting{% endblock %}
+
+{% block content %}
+<!-- Backtest Configuration -->
+<div class="dashboard-grid">
+    <div class="card card-neon-cyan mb-6">
+        <h2 class="text-lg font-bold mb-6">Backtest Konfiguration</h2>
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div class="form-group">
+                <label class="form-label">Start Datum</label>
+                <input type="date" id="start-date" class="form-input" value="">
+            </div>
+            <div class="form-group">
+                <label class="form-label">End Datum</label>
+                <input type="date" id="end-date" class="form-input" value="">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Initial Equity ($)</label>
+                <input type="number" id="initial-equity" class="form-input" value="10000" min="1000" step="1000">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Strategien</label>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="strat-ensemble" checked> Ensemble
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="strat-momentum" checked> Momentum
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="strat-mean" checked> Mean Reversion
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="strat-breakout" checked> Breakout
+                    </label>
+                </div>
+            </div>
+            <button onclick="startBacktest()" class="btn btn-primary btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Backtest starten
+            </button>
+        </div>
+        <div id="backtest-status" class="card-subtitle mt-4" style="min-height: 2rem;"></div>
+    </div>
+
+    <div class="card card-neon-magenta mb-6">
+        <h2 class="text-lg font-bold mb-6">Backtest Ergebnisse</h2>
+        <div id="backtest-results" class="card-subtitle">
+            Noch keine Backtest-Ergebnisse vorhanden.
+        </div>
+    </div>
+</div>
+
+<!-- Results Cards -->
+<div class="stats-grid mt-6">
+    <div class="card card-neon-green">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Total Return</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-green);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+            </div>
+            <div id="total-return" class="card-value card-value-neon-green">--</div>
+            <div class="card-subtitle">Return</div>
+        </div>
+    </div>
+
+    <div class="card card-neon-cyan">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Win Rate</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-cyan);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div id="win-rate" class="card-value card-value-neon-cyan">--</div>
+            <div class="card-subtitle">Win Rate</div>
+        </div>
+    </div>
+
+    <div class="card card-neon-violet">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Max Drawdown</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-violet);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                </svg>
+            </div>
+            <div id="max-drawdown" class="card-value card-value-neon-violet">--</div>
+            <div class="card-subtitle">Drawdown</div>
+        </div>
+    </div>
+
+    <div class="card card-neon-magenta">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Sharpe Ratio</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-magenta);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div id="sharpe-ratio" class="card-value card-value-neon-magenta">--</div>
+            <div class="card-subtitle">Sharpe</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Set default dates (30 days ago to today)
+document.addEventListener('DOMContentLoaded', () => {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    
+    document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
+    document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
+});
+
+async function startBacktest() {
+    const statusEl = document.getElementById('backtest-status');
+    const resultsEl = document.getElementById('backtest-results');
+    
+    statusEl.textContent = 'Backtest wird gestartet...';
+    resultsEl.textContent = 'Backtest läuft...';
+    
+    const startDate = document.getElementById('start-date').value;
+    const endDate = document.getElementById('end-date').value;
+    const initialEquity = parseFloat(document.getElementById('initial-equity').value);
+    
+    if (!startDate || !endDate) {
+        statusEl.textContent = '❌ Bitte Start- und End-Datum angeben';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/backtesting/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                start_date: startDate,
+                end_date: endDate,
+                initial_equity: initialEquity
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusEl.textContent = '✅ Backtest erfolgreich abgeschlossen';
+            displayResults(data.results || data);
+        } else {
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Backtest konnte nicht gestartet werden');
+            resultsEl.textContent = 'Fehler beim Backtest';
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ Fehler: ' + error.message;
+        resultsEl.textContent = 'Fehler beim Backtest: ' + error.message;
+    }
+}
+
+function displayResults(results) {
+    // Update metrics
+    if (results.total_return !== undefined) {
+        document.getElementById('total-return').textContent = 
+            (results.total_return >= 0 ? '+' : '') + (results.total_return * 100).toFixed(2) + '%';
+    }
+    if (results.win_rate !== undefined) {
+        document.getElementById('win-rate').textContent = (results.win_rate * 100).toFixed(2) + '%';
+    }
+    if (results.max_drawdown !== undefined) {
+        document.getElementById('max-drawdown').textContent = 
+            (results.max_drawdown * 100).toFixed(2) + '%';
+    }
+    if (results.sharpe_ratio !== undefined) {
+        document.getElementById('sharpe-ratio').textContent = results.sharpe_ratio.toFixed(2);
+    }
+    
+    // Update results text
+    const resultsEl = document.getElementById('backtest-results');
+    resultsEl.innerHTML = `
+        <div style="line-height: 1.8;">
+            <div><strong>Total Trades:</strong> ${results.total_trades || 0}</div>
+            <div><strong>Winning Trades:</strong> ${results.winning_trades || 0}</div>
+            <div><strong>Losing Trades:</strong> ${results.losing_trades || 0}</div>
+            <div><strong>Total PnL:</strong> $${(results.total_pnl || 0).toFixed(2)}</div>
+            <div><strong>Average Win:</strong> $${(results.avg_win || 0).toFixed(2)}</div>
+            <div><strong>Average Loss:</strong> $${(results.avg_loss || 0).toFixed(2)}</div>
+            <div><strong>Profit Factor:</strong> ${(results.profit_factor || 0).toFixed(2)}</div>
+        </div>
+    `;
+}
+</script>
+{% endblock %}
+

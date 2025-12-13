@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Control - Trading Bot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Bot</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <a href="/" class="nav-item" data-page="dashboard">
+                        <span class="nav-item-icon"><i class="fas fa-home"></i></span>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/live-trading" class="nav-item" data-page="live-trading">
+                        <span class="nav-item-icon"><i class="fas fa-chart-candlestick"></i></span>
+                        <span>Live Trading</span>
+                    </a>
+                    <a href="/bot-control" class="nav-item active" data-page="bot-control">
+                        <span class="nav-item-icon"><i class="fas fa-robot"></i></span>
+                        <span>Bot Control</span>
+                    </a>
+                    <a href="/training" class="nav-item" data-page="training">
+                        <span class="nav-item-icon"><i class="fas fa-brain"></i></span>
+                        <span>KI Training</span>
+                    </a>
+                    <a href="/backtesting" class="nav-item" data-page="backtesting">
+                        <span class="nav-item-icon"><i class="fas fa-chart-line"></i></span>
+                        <span>Backtesting</span>
+                    </a>
+                    <a href="/trade-history" class="nav-item" data-page="trade-history">
+                        <span class="nav-item-icon"><i class="fas fa-history"></i></span>
+                        <span>Trade History</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Other</div>
+                    <a href="/settings" class="nav-item" data-page="settings">
+                        <span class="nav-item-icon"><i class="fas fa-cog"></i></span>
+                        <span>Settings</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Header -->
+            <header class="top-header">
+                <div class="header-left">
+                    <h1 class="header-title">Bot Control</h1>
+                </div>
+                <div class="header-right">
+                    <div class="header-icon" style="position: relative;">
+                        <i class="fas fa-bell"></i>
+                        <span class="header-icon-badge">2</span>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-sync-alt" onclick="loadBotStatus()"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Bot Status Card -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Bot Status</h2>
+                            <p class="card-subtitle">Aktueller Status und Konfiguration</p>
+                        </div>
+                        <div id="bot-status-badge" class="status-badge stopped">
+                            <span class="status-dot"></span>
+                            <span id="bot-status-text">Gestoppt</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg); margin-top: var(--spacing-lg);">
+                        <div>
+                            <div class="stat-label">Trading Mode</div>
+                            <div class="stat-value" style="font-size: 1.25rem;" id="trading-mode">PAPER</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Start Zeit</div>
+                            <div class="stat-value" style="font-size: 1.25rem;" id="start-time">--</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Uptime</div>
+                            <div class="stat-value" style="font-size: 1.25rem;" id="uptime">--</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Letzte Ausführung</div>
+                            <div class="stat-value" style="font-size: 1.25rem;" id="last-execution">--</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Control Buttons -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Bot Steuerung</h2>
+                    </div>
+                    <div style="display: flex; gap: var(--spacing-md); flex-wrap: wrap;">
+                        <button id="btn-start" class="btn btn-success btn-lg" onclick="startBot()">
+                            <i class="fas fa-play"></i>
+                            Bot Starten
+                        </button>
+                        <button id="btn-stop" class="btn btn-danger btn-lg hidden" onclick="stopBot()">
+                            <i class="fas fa-stop"></i>
+                            Bot Stoppen
+                        </button>
+                        <button id="btn-pause" class="btn btn-warning btn-lg hidden" onclick="pauseBot()">
+                            <i class="fas fa-pause"></i>
+                            Pausieren
+                        </button>
+                        <button id="btn-resume" class="btn btn-success btn-lg hidden" onclick="resumeBot()">
+                            <i class="fas fa-play"></i>
+                            Fortsetzen
+                        </button>
+                        <button class="btn btn-danger btn-lg" onclick="emergencyStop()">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Emergency Stop
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Current Activity -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Current Activity</h2>
+                    </div>
+                    <div id="current-activity">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">
+                            Keine Aktivität (Bot gestoppt)
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Health Status -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">System Health</h2>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-lg);">
+                        <div>
+                            <div class="stat-label">API Status</div>
+                            <div id="api-status" class="status-badge running">
+                                <span class="status-dot"></span>
+                                <span>Connected</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Database Status</div>
+                            <div id="db-status" class="status-badge running">
+                                <span class="status-dot"></span>
+                                <span>Connected</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="stat-label">System Health</div>
+                            <div id="system-health" class="status-badge running">
+                                <span class="status-dot"></span>
+                                <span>Healthy</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        async function loadBotStatus() {
+            try {
+                const response = await fetch('/api/v1/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error(`Invalid response type: ${contentType}`);
+                }
+                const status = await response.json();
+                updateBotStatus(status);
+            } catch (error) {
+                console.error('Error loading bot status:', error);
+                // Stille fehlerbehandlung - nicht popup alert zeigen
+                document.getElementById('current-activity').innerHTML = `
+                    <div class="text-center p-4" style="color: var(--text-secondary);">
+                        ⚠️ Fehler beim Laden des Status: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        function updateBotStatus(status) {
+            const badge = document.getElementById('bot-status-badge');
+            const text = document.getElementById('bot-status-text');
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+            const btnPause = document.getElementById('btn-pause');
+            const btnResume = document.getElementById('btn-resume');
+            
+            if (status.status === 'running') {
+                badge.className = 'status-badge running';
+                text.textContent = 'Läuft';
+                btnStart.classList.add('hidden');
+                btnStop.classList.remove('hidden');
+                btnPause.classList.remove('hidden');
+                btnResume.classList.add('hidden');
+            } else if (status.status === 'paused') {
+                badge.className = 'status-badge paused';
+                text.textContent = 'Pausiert';
+                btnStart.classList.add('hidden');
+                btnStop.classList.remove('hidden');
+                btnPause.classList.add('hidden');
+                btnResume.classList.remove('hidden');
+            } else {
+                badge.className = 'status-badge stopped';
+                text.textContent = 'Gestoppt';
+                btnStart.classList.remove('hidden');
+                btnStop.classList.add('hidden');
+                btnPause.classList.add('hidden');
+                btnResume.classList.add('hidden');
+            }
+            
+            document.getElementById('trading-mode').textContent = status.mode || 'PAPER';
+            document.getElementById('start-time').textContent = status.startTime ? new Date(status.startTime).toLocaleString('de-DE') : '--';
+            document.getElementById('uptime').textContent = status.uptime || '--';
+            document.getElementById('last-execution').textContent = status.lastExecution ? new Date(status.lastExecution).toLocaleString('de-DE') : '--';
+            
+            // Update activity
+            if (status.status === 'running') {
+                document.getElementById('current-activity').innerHTML = `
+                    <div class="p-2">
+                        <div style="color: var(--text-primary); font-weight: 600;">Bot analysiert Märkte...</div>
+                        <div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: var(--spacing-xs);">
+                            Letzte Ausführung: ${status.lastExecution ? new Date(status.lastExecution).toLocaleString('de-DE') : '--'}
+                        </div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('current-activity').innerHTML = `
+                    <div class="text-center p-4" style="color: var(--text-secondary);">
+                        Keine Aktivität (Bot gestoppt)
+                    </div>
+                `;
+            }
+        }
+        
+        // Helper-Funktion zur sicheren JSON-Verarbeitung
+        async function safeFetch(url, method = 'POST') {
+            const response = await fetch(url, { method });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error(`Invalid response type: ${contentType}`);
+            }
+            return await response.json();
+        }
+
+        // Helper-Funktion zur Benachrichtigung
+        function showNotification(message, type = 'info') {
+            const activity = document.getElementById('current-activity');
+            let icon = '✓';
+            let color = 'var(--text-primary)';
+            if (type === 'error') {
+                icon = '✗';
+                color = '#ef4444';
+            } else if (type === 'warning') {
+                icon = '⚠';
+                color = '#f59e0b';
+            } else if (type === 'success') {
+                icon = '✓';
+                color = '#10b981';
+            }
+            activity.innerHTML = `<div style="padding: var(--spacing-lg); color: ${color}; text-align: center;"><div style="font-size: 1.5rem; margin-bottom: var(--spacing-md);">${icon}</div><div>${message}</div></div>`;
+        }
+
+        async function startBot() {
+            try {
+                showNotification('Starten...', 'info');
+                const data = await safeFetch('/api/v1/bot/start', 'POST');
+                if (data.success) {
+                    showNotification('✓ Bot wurde gestartet!', 'success');
+                    setTimeout(loadBotStatus, 500);
+                } else {
+                    showNotification('Fehler: ' + (data.message || data.error || 'Bot konnte nicht gestartet werden'), 'error');
+                    console.error('Start error:', data);
+                }
+            } catch (error) {
+                showNotification('Fehler beim Starten: ' + error.message, 'error');
+                console.error('Start error:', error);
+            }
+        }
+
+        async function stopBot() {
+            if (!confirm('Bot wirklich stoppen?')) return;
+            try {
+                showNotification('Stoppt...', 'info');
+                const data = await safeFetch('/api/v1/bot/stop', 'POST');
+                if (data.success) {
+                    showNotification('✓ Bot wurde gestoppt!', 'success');
+                    setTimeout(loadBotStatus, 500);
+                } else {
+                    showNotification('Fehler: ' + (data.message || data.error || 'Bot konnte nicht gestoppt werden'), 'error');
+                    console.error('Stop error:', data);
+                }
+            } catch (error) {
+                showNotification('Fehler beim Stoppen: ' + error.message, 'error');
+                console.error('Stop error:', error);
+            }
+        }
+
+        async function pauseBot() {
+            try {
+                showNotification('Pausiert...', 'info');
+                const data = await safeFetch('/api/v1/bot/pause', 'POST');
+                if (data.success) {
+                    showNotification('✓ Bot wurde pausiert!', 'success');
+                    setTimeout(loadBotStatus, 500);
+                } else {
+                    showNotification('Fehler: ' + (data.message || data.error || 'Bot konnte nicht pausiert werden'), 'error');
+                    console.error('Pause error:', data);
+                }
+            } catch (error) {
+                showNotification('Fehler beim Pausieren: ' + error.message, 'error');
+                console.error('Pause error:', error);
+            }
+        }
+
+        async function resumeBot() {
+            try {
+                showNotification('Fortsetzung...', 'info');
+                const data = await safeFetch('/api/v1/bot/resume', 'POST');
+                if (data.success) {
+                    showNotification('✓ Bot wurde fortgesetzt!', 'success');
+                    setTimeout(loadBotStatus, 500);
+                } else {
+                    showNotification('Fehler: ' + (data.message || data.error || 'Bot konnte nicht fortgesetzt werden'), 'error');
+                    console.error('Resume error:', data);
+                }
+            } catch (error) {
+                showNotification('Fehler beim Fortsetzen: ' + error.message, 'error');
+                console.error('Resume error:', error);
+            }
+        }
+
+        async function emergencyStop() {
+            if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
+            try {
+                showNotification('⚠️ Emergency Stop läuft...', 'warning');
+                const data = await safeFetch('/api/v1/bot/emergency-stop', 'POST');
+                if (data.success) {
+                    showNotification('🚨 Emergency Stop ausgeführt!', 'success');
+                    setTimeout(loadBotStatus, 500);
+                } else {
+                    showNotification('Fehler: ' + (data.message || data.error || 'Emergency Stop fehlgeschlagen'), 'error');
+                    console.error('Emergency stop error:', data);
+                }
+            } catch (error) {
+                showNotification('Fehler beim Emergency Stop: ' + error.message, 'error');
+                console.error('Emergency stop error:', error);
+            }
+        }
+        
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBotStatus();
+            setInterval(loadBotStatus, 5000); // Refresh every 5 seconds
+        });
+    </script>
+</body>
+</html>
+

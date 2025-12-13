@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Trading - Trading Bot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Bot</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <a href="/" class="nav-item" data-page="dashboard">
+                        <span class="nav-item-icon"><i class="fas fa-home"></i></span>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/live-trading" class="nav-item active" data-page="live-trading">
+                        <span class="nav-item-icon"><i class="fas fa-chart-candlestick"></i></span>
+                        <span>Live Trading</span>
+                    </a>
+                    <a href="/bot-control" class="nav-item" data-page="bot-control">
+                        <span class="nav-item-icon"><i class="fas fa-robot"></i></span>
+                        <span>Bot Control</span>
+                    </a>
+                    <a href="/training" class="nav-item" data-page="training">
+                        <span class="nav-item-icon"><i class="fas fa-brain"></i></span>
+                        <span>KI Training</span>
+                    </a>
+                    <a href="/backtesting" class="nav-item" data-page="backtesting">
+                        <span class="nav-item-icon"><i class="fas fa-chart-line"></i></span>
+                        <span>Backtesting</span>
+                    </a>
+                    <a href="/trade-history" class="nav-item" data-page="trade-history">
+                        <span class="nav-item-icon"><i class="fas fa-history"></i></span>
+                        <span>Trade History</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Other</div>
+                    <a href="/settings" class="nav-item" data-page="settings">
+                        <span class="nav-item-icon"><i class="fas fa-cog"></i></span>
+                        <span>Settings</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Header -->
+            <header class="top-header">
+                <div class="header-left">
+                    <h1 class="header-title">Live Trading</h1>
+                </div>
+                <div class="header-right">
+                    <div class="header-icon" style="position: relative;">
+                        <i class="fas fa-bell"></i>
+                        <span class="header-icon-badge">2</span>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-sync-alt" onclick="loadLiveData()"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Performance Stats -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg); margin-bottom: var(--spacing-xl);">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Heute PnL</div>
+                        </div>
+                        <div class="stat-value positive" id="today-pnl" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">$0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Diese Woche</div>
+                        </div>
+                        <div class="stat-value" id="week-pnl" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">$0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Dieser Monat</div>
+                        </div>
+                        <div class="stat-value" id="month-pnl" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">$0.00</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Win Rate</div>
+                        </div>
+                        <div class="stat-value" id="today-winrate" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Active Positions -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Aktive Positionen</h2>
+                            <p class="card-subtitle">Aktuell offene Trading-Positionen</p>
+                        </div>
+                        <span id="active-count" style="background: var(--accent-color); color: white; padding: 0.5rem 1rem; border-radius: 999px; font-weight: 600;">0</span>
+                    </div>
+                    <div id="active-positions" style="min-height: 100px;">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">
+                            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: var(--spacing-md);"></i>
+                            <div>Keine aktiven Positionen</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Signals -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Letzte Signale</h2>
+                            <p class="card-subtitle">Die letzten generierten Trading-Signale</p>
+                        </div>
+                    </div>
+                    <div id="recent-signals" style="min-height: 150px;">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">
+                            <i class="fas fa-signal" style="font-size: 2rem; margin-bottom: var(--spacing-md);"></i>
+                            <div>Keine Signale generiert</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Chart -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Performance Chart</h2>
+                    </div>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Market Overview -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Markt Überblick</h2>
+                    </div>
+                    <div id="market-overview" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--spacing-lg);">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">
+                            <i class="fas fa-coins" style="font-size: 2rem; margin-bottom: var(--spacing-md);"></i>
+                            <div>Laden...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let performanceChart = null;
+
+        // Helper für sichere JSON-Verarbeitung
+        async function safeFetch(url, method = 'GET') {
+            const response = await fetch(url, { method });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error(`Invalid response type: ${contentType}`);
+            }
+            return await response.json();
+        }
+
+        async function loadLiveData() {
+            try {
+                // Load bot status
+                const status = await safeFetch('/api/v1/status', 'GET');
+
+                // Load trade data from your API
+                // This would fetch from your trading API
+                updatePerformanceMetrics();
+                loadRecentSignals();
+                loadActivePositions();
+            } catch (error) {
+                console.error('Error loading live data:', error);
+                // Silent fehlerbehandlung - nicht die ganze Seite blockieren
+            }
+        }
+
+        function updatePerformanceMetrics() {
+            // Update with actual data from your API
+            document.getElementById('today-pnl').textContent = '$0.00';
+            document.getElementById('week-pnl').textContent = '$0.00';
+            document.getElementById('month-pnl').textContent = '$0.00';
+            document.getElementById('today-winrate').textContent = '0%';
+        }
+
+        function loadRecentSignals() {
+            const signalsContainer = document.getElementById('recent-signals');
+            // Load from API and display
+            signalsContainer.innerHTML = `
+                <div class="text-center p-4" style="color: var(--text-secondary);">
+                    <i class="fas fa-signal" style="font-size: 2rem; margin-bottom: var(--spacing-md);"></i>
+                    <div>Keine Signale generiert</div>
+                </div>
+            `;
+        }
+
+        function loadActivePositions() {
+            const positionsContainer = document.getElementById('active-positions');
+            // Load from API and display
+            positionsContainer.innerHTML = `
+                <div class="text-center p-4" style="color: var(--text-secondary);">
+                    <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: var(--spacing-md);"></i>
+                    <div>Keine aktiven Positionen</div>
+                </div>
+            `;
+            document.getElementById('active-count').textContent = '0';
+        }
+
+        function initPerformanceChart() {
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            if (performanceChart) {
+                performanceChart.destroy();
+            }
+
+            performanceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
+                    datasets: [{
+                        label: 'Cumulative PnL',
+                        data: [0, 0, 0, 0, 0, 0, 0],
+                        borderColor: 'var(--accent-color)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 4,
+                        pointBackgroundColor: 'var(--accent-color)',
+                        pointBorderColor: 'white',
+                        pointBorderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: 'var(--text-primary)',
+                                font: { size: 12 }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: 'var(--text-secondary)' },
+                            grid: { color: 'var(--border-color)' }
+                        },
+                        x: {
+                            ticks: { color: 'var(--text-secondary)' },
+                            grid: { color: 'var(--border-color)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadLiveData();
+            initPerformanceChart();
+            setInterval(loadLiveData, 5000); // Refresh every 5 seconds
+        });
+    </script>
+</body>
+</html>

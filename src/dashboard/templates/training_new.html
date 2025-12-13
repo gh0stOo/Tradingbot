@@ -1,0 +1,196 @@
+{% extends "base_neon.html" %}
+
+{% block title %}AI Training - Trading Bot{% endblock %}
+{% block page_title %}AI Training{% endblock %}
+
+{% block content %}
+<!-- ML Status Cards -->
+<div class="stats-grid">
+    <div class="card card-neon-cyan">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Signal Predictor</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-cyan);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+            </div>
+            <div id="signal-predictor-status" class="card-value card-value-neon-cyan">Nicht aktiviert</div>
+            <div id="signal-predictor-detail" class="card-subtitle">Status</div>
+        </div>
+    </div>
+
+    <div class="card card-neon-magenta">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Regime Classifier</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-magenta);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div id="regime-classifier-status" class="card-value card-value-neon-magenta">Nicht aktiviert</div>
+            <div id="regime-classifier-detail" class="card-subtitle">Status</div>
+        </div>
+    </div>
+
+    <div class="card card-neon-violet">
+        <div class="card-gradient-overlay"></div>
+        <div class="relative z-1">
+            <div class="card-header">
+                <span class="card-title-small">Online Learning</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="card-icon" style="color: var(--neon-violet);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </div>
+            <div id="online-learning-status" class="card-value card-value-neon-violet">Nicht aktiviert</div>
+            <div id="online-learning-detail" class="card-subtitle">Status</div>
+        </div>
+    </div>
+</div>
+
+<!-- Training Controls -->
+<div class="dashboard-grid">
+    <div class="card card-neon-cyan mb-6">
+        <h2 class="text-lg font-bold mb-6">Model Training</h2>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <button onclick="trainSignalPredictor()" class="btn btn-primary btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Signal Predictor trainieren
+            </button>
+            <button onclick="trainRegimeClassifier()" class="btn btn-primary btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Regime Classifier trainieren
+            </button>
+            <button onclick="trainBoth()" class="btn btn-success btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Beide Modelle trainieren
+            </button>
+        </div>
+        <div id="training-status" class="card-subtitle mt-4" style="min-height: 2rem;"></div>
+    </div>
+
+    <div class="card card-neon-magenta mb-6">
+        <h2 class="text-lg font-bold mb-6">Training Status</h2>
+        <div id="training-details" class="card-subtitle">
+            Lade Training-Status...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadTrainingStatus() {
+    try {
+        const response = await fetch('/api/training/status');
+        const data = await response.json();
+        
+        // Update status cards
+        if (data.signalPredictor && data.signalPredictor.enabled) {
+            document.getElementById('signal-predictor-status').textContent = 'Aktiviert';
+            document.getElementById('signal-predictor-detail').textContent = 
+                data.signalPredictor.last_training ? 
+                'Letztes Training: ' + new Date(data.signalPredictor.last_training).toLocaleString() : 
+                'Kein Training bisher';
+        } else {
+            document.getElementById('signal-predictor-status').textContent = 'Nicht aktiviert';
+        }
+        
+        if (data.regimeClassifier && data.regimeClassifier.enabled) {
+            document.getElementById('regime-classifier-status').textContent = 'Aktiviert';
+            document.getElementById('regime-classifier-detail').textContent = 
+                data.regimeClassifier.last_training ? 
+                'Letztes Training: ' + new Date(data.regimeClassifier.last_training).toLocaleString() : 
+                'Kein Training bisher';
+        } else {
+            document.getElementById('regime-classifier-status').textContent = 'Nicht aktiviert';
+        }
+        
+        if (data.onlineLearning && data.onlineLearning.enabled) {
+            document.getElementById('online-learning-status').textContent = 'Aktiviert';
+            document.getElementById('online-learning-detail').textContent = 
+                data.onlineLearning.last_update ? 
+                'Letztes Update: ' + new Date(data.onlineLearning.last_update).toLocaleString() : 
+                'Noch kein Update';
+        } else {
+            document.getElementById('online-learning-status').textContent = 'Nicht aktiviert';
+        }
+        
+        // Update training details
+        const details = document.getElementById('training-details');
+        details.innerHTML = `
+            <div style="line-height: 1.8;">
+                <div><strong>Signal Predictor:</strong> ${data.signalPredictor?.enabled ? '✅ Aktiviert' : '❌ Nicht aktiviert'}</div>
+                <div><strong>Regime Classifier:</strong> ${data.regimeClassifier?.enabled ? '✅ Aktiviert' : '❌ Nicht aktiviert'}</div>
+                <div><strong>Online Learning:</strong> ${data.onlineLearning?.enabled ? '✅ Aktiviert' : '❌ Nicht aktiviert'}</div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading training status:', error);
+    }
+}
+
+async function trainSignalPredictor() {
+    const statusEl = document.getElementById('training-status');
+    statusEl.textContent = 'Training gestartet...';
+    try {
+        const response = await fetch('/api/training/signal-predictor', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            statusEl.textContent = '✅ Training erfolgreich gestartet';
+            setTimeout(loadTrainingStatus, 2000);
+        } else {
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Training konnte nicht gestartet werden');
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ Fehler: ' + error.message;
+    }
+}
+
+async function trainRegimeClassifier() {
+    const statusEl = document.getElementById('training-status');
+    statusEl.textContent = 'Training gestartet...';
+    try {
+        const response = await fetch('/api/training/regime-classifier', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            statusEl.textContent = '✅ Training erfolgreich gestartet';
+            setTimeout(loadTrainingStatus, 2000);
+        } else {
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Training konnte nicht gestartet werden');
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ Fehler: ' + error.message;
+    }
+}
+
+async function trainBoth() {
+    const statusEl = document.getElementById('training-status');
+    statusEl.textContent = 'Beide Modelle werden trainiert...';
+    try {
+        await Promise.all([
+            fetch('/api/training/signal-predictor', { method: 'POST' }),
+            fetch('/api/training/regime-classifier', { method: 'POST' })
+        ]);
+        statusEl.textContent = '✅ Beide Trainings erfolgreich gestartet';
+        setTimeout(loadTrainingStatus, 2000);
+    } catch (error) {
+        statusEl.textContent = '❌ Fehler: ' + error.message;
+    }
+}
+
+// Load status on page load and refresh every 5 seconds
+document.addEventListener('DOMContentLoaded', () => {
+    loadTrainingStatus();
+    setInterval(loadTrainingStatus, 5000);
+});
+</script>
+{% endblock %}
+

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade History - Trading Bot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Bot</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <a href="/" class="nav-item" data-page="dashboard">
+                        <span class="nav-item-icon"><i class="fas fa-home"></i></span>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/live-trading" class="nav-item" data-page="live-trading">
+                        <span class="nav-item-icon"><i class="fas fa-chart-candlestick"></i></span>
+                        <span>Live Trading</span>
+                    </a>
+                    <a href="/bot-control" class="nav-item" data-page="bot-control">
+                        <span class="nav-item-icon"><i class="fas fa-robot"></i></span>
+                        <span>Bot Control</span>
+                    </a>
+                    <a href="/training" class="nav-item" data-page="training">
+                        <span class="nav-item-icon"><i class="fas fa-brain"></i></span>
+                        <span>KI Training</span>
+                    </a>
+                    <a href="/backtesting" class="nav-item" data-page="backtesting">
+                        <span class="nav-item-icon"><i class="fas fa-chart-line"></i></span>
+                        <span>Backtesting</span>
+                    </a>
+                    <a href="/trade-history" class="nav-item active" data-page="trade-history">
+                        <span class="nav-item-icon"><i class="fas fa-history"></i></span>
+                        <span>Trade History</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Other</div>
+                    <a href="/settings" class="nav-item" data-page="settings">
+                        <span class="nav-item-icon"><i class="fas fa-cog"></i></span>
+                        <span>Settings</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Header -->
+            <header class="top-header">
+                <div class="header-left">
+                    <h1 class="header-title">Trade History</h1>
+                </div>
+                <div class="header-right">
+                    <div class="header-icon" style="position: relative;">
+                        <i class="fas fa-bell"></i>
+                        <span class="header-icon-badge">2</span>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-sync-alt" onclick="loadTradeHistory()"></i>
+                    </div>
+                    <div class="header-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Statistics Cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg); margin-bottom: var(--spacing-xl);">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Gesamt Trades</div>
+                        </div>
+                        <div class="stat-value" id="total-trades" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Gewinntrades</div>
+                        </div>
+                        <div class="stat-value positive" id="winning-trades" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Verlierertrades</div>
+                        </div>
+                        <div class="stat-value negative" id="losing-trades" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="stat-label">Win Rate</div>
+                        </div>
+                        <div class="stat-value" id="win-rate" style="font-size: 1.75rem; padding: var(--spacing-lg) 0;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Filter Card -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Filter</h2>
+                    </div>
+                    <div style="display: flex; gap: var(--spacing-md); flex-wrap: wrap; align-items: flex-end;">
+                        <div style="flex: 1; min-width: 150px;">
+                            <label class="form-label">Zeitraum</label>
+                            <select class="form-select" id="filter-days" onchange="loadTradeHistory()" style="width: 100%; padding: var(--spacing-sm); border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="">Alle</option>
+                                <option value="7">Letzte 7 Tage</option>
+                                <option value="30">Letzte 30 Tage</option>
+                                <option value="90">Letzte 90 Tage</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1; min-width: 150px;">
+                            <label class="form-label">Symbol</label>
+                            <input type="text" class="form-input" id="filter-symbol" placeholder="BTCUSDT" onchange="loadTradeHistory()" style="width: 100%; padding: var(--spacing-sm); border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div style="flex: 1; min-width: 150px;">
+                            <label class="form-label">Side</label>
+                            <select class="form-select" id="filter-side" onchange="loadTradeHistory()" style="width: 100%; padding: var(--spacing-sm); border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="">Alle</option>
+                                <option value="Buy">Buy</option>
+                                <option value="Sell">Sell</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1; min-width: 150px;">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" id="filter-success" onchange="loadTradeHistory()" style="width: 100%; padding: var(--spacing-sm); border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="">Alle</option>
+                                <option value="1">Gewonnen</option>
+                                <option value="0">Verloren</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-secondary" onclick="loadTradeHistory()" style="height: 40px;">
+                            <i class="fas fa-search"></i>
+                            Filtern
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Trades Table -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Trade Übersicht</h2>
+                            <p class="card-subtitle">Alle abgeschlossenen Trades</p>
+                        </div>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table id="trades-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Datum</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Symbol</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Side</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Entry Price</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Exit Price</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">PnL</th>
+                                    <th style="padding: var(--spacing-md); text-align: left; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-body">
+                                <tr>
+                                    <td colspan="7" style="padding: var(--spacing-xl); text-align: center; color: var(--text-secondary);">
+                                        <i class="fas fa-inbox" style="font-size: 2rem; display: block; margin-bottom: var(--spacing-md);"></i>
+                                        Keine Trades gefunden
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Detailed Trade Stats -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Statistiken</h2>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-lg);">
+                        <div>
+                            <div class="stat-label">Durchschn. Gewinn</div>
+                            <div class="stat-value positive" id="avg-win" style="font-size: 1.25rem;">$0.00</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Durchschn. Verlust</div>
+                            <div class="stat-value negative" id="avg-loss" style="font-size: 1.25rem;">$0.00</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Beste Trade</div>
+                            <div class="stat-value positive" id="best-trade" style="font-size: 1.25rem;">$0.00</div>
+                        </div>
+                        <div>
+                            <div class="stat-label">Schlechteste Trade</div>
+                            <div class="stat-value negative" id="worst-trade" style="font-size: 1.25rem;">$0.00</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        async function loadTradeHistory() {
+            try {
+                // Get filter values
+                const days = document.getElementById('filter-days').value;
+                const symbol = document.getElementById('filter-symbol').value;
+                const side = document.getElementById('filter-side').value;
+                const success = document.getElementById('filter-success').value;
+
+                // Load from API
+                const response = await fetch('/api/v1/status');
+                const status = await response.json();
+
+                // Update statistics
+                updateTradeStats(status);
+                loadTradesTable();
+            } catch (error) {
+                console.error('Error loading trade history:', error);
+            }
+        }
+
+        function updateTradeStats(status) {
+            document.getElementById('total-trades').textContent = '0';
+            document.getElementById('winning-trades').textContent = '0';
+            document.getElementById('losing-trades').textContent = '0';
+            document.getElementById('win-rate').textContent = '0%';
+            document.getElementById('avg-win').textContent = '$0.00';
+            document.getElementById('avg-loss').textContent = '$0.00';
+            document.getElementById('best-trade').textContent = '$0.00';
+            document.getElementById('worst-trade').textContent = '$0.00';
+        }
+
+        function loadTradesTable() {
+            const tbody = document.getElementById('trades-body');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="padding: var(--spacing-xl); text-align: center; color: var(--text-secondary);">
+                        <i class="fas fa-inbox" style="font-size: 2rem; display: block; margin-bottom: var(--spacing-md);"></i>
+                        Keine Trades gefunden
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Format number as currency
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('de-DE', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(value);
+        }
+
+        // Format date
+        function formatDate(dateString) {
+            if (!dateString) return '--';
+            return new Date(dateString).toLocaleString('de-DE');
+        }
+
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTradeHistory();
+        });
+    </script>
+</body>
+</html>

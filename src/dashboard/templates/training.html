@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KI Training - Trading Bot</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Bot</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <a href="/" class="nav-item" data-page="dashboard">
+                        <span class="nav-item-icon"><i class="fas fa-home"></i></span>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/live-trading" class="nav-item" data-page="live-trading">
+                        <span class="nav-item-icon"><i class="fas fa-chart-candlestick"></i></span>
+                        <span>Live Trading</span>
+                    </a>
+                    <a href="/bot-control" class="nav-item" data-page="bot-control">
+                        <span class="nav-item-icon"><i class="fas fa-robot"></i></span>
+                        <span>Bot Control</span>
+                    </a>
+                    <a href="/training" class="nav-item active" data-page="training">
+                        <span class="nav-item-icon"><i class="fas fa-brain"></i></span>
+                        <span>KI Training</span>
+                    </a>
+                    <a href="/backtesting" class="nav-item" data-page="backtesting">
+                        <span class="nav-item-icon"><i class="fas fa-chart-line"></i></span>
+                        <span>Backtesting</span>
+                    </a>
+                    <a href="/trade-history" class="nav-item" data-page="trade-history">
+                        <span class="nav-item-icon"><i class="fas fa-history"></i></span>
+                        <span>Trade History</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1 class="header-title">KI Training</h1>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <!-- Training Status Overview -->
+                <div class="stats-grid mb-4">
+                    <div class="stat-card">
+                        <div class="stat-label">Signal Predictor</div>
+                        <div id="sp-status" class="status-badge stopped">
+                            <span class="status-dot"></span>
+                            <span>Idle</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Regime Classifier</div>
+                        <div id="rc-status" class="status-badge stopped">
+                            <span class="status-dot"></span>
+                            <span>Idle</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Genetic Algorithm</div>
+                        <div id="ga-status" class="status-badge stopped">
+                            <span class="status-dot"></span>
+                            <span>Idle</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Online Learning</div>
+                        <div id="ol-status" class="status-badge running">
+                            <span class="status-dot"></span>
+                            <span>Aktiv</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Manual Training -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Manual Training Trigger</h2>
+                    </div>
+                    <div style="display: flex; gap: var(--spacing-md); flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="trainSignalPredictor()">
+                            <i class="fas fa-brain"></i>
+                            Train Signal Predictor
+                        </button>
+                        <button class="btn btn-primary" onclick="trainRegimeClassifier()">
+                            <i class="fas fa-brain"></i>
+                            Train Regime Classifier
+                        </button>
+                        <button class="btn btn-primary" onclick="trainBoth()">
+                            <i class="fas fa-brain"></i>
+                            Train Both Models
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Training Progress -->
+                <div class="card mb-4" id="sp-progress-card" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">Signal Predictor Training</h2>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-sm);">
+                            <span>Progress</span>
+                            <span id="sp-progress-text">0%</span>
+                        </div>
+                        <div style="background: var(--bg-secondary); height: 20px; border-radius: var(--radius-md); overflow: hidden;">
+                            <div id="sp-progress-bar" style="background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mb-4" id="rc-progress-card" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">Regime Classifier Training</h2>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-sm);">
+                            <span>Progress</span>
+                            <span id="rc-progress-text">0%</span>
+                        </div>
+                        <div style="background: var(--bg-secondary); height: 20px; border-radius: var(--radius-md); overflow: hidden;">
+                            <div id="rc-progress-bar" style="background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Genetic Algorithm -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Genetic Algorithm Optimization</h2>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary mb-2" onclick="startGA()">
+                            <i class="fas fa-dna"></i>
+                            Start GA Optimization
+                        </button>
+                        <div id="ga-progress-container" style="display: none;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-sm);">
+                                <span>Generation: <span id="ga-generation">0</span> / 50</span>
+                                <span id="ga-progress-text">0%</span>
+                            </div>
+                            <div style="background: var(--bg-secondary); height: 20px; border-radius: var(--radius-md); overflow: hidden;">
+                                <div id="ga-progress-bar" style="background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                            <div style="margin-top: var(--spacing-sm);">
+                                <span>Best Fitness: <span id="ga-best-fitness">--</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Training History -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="card-title">Training History</h2>
+                    </div>
+                    <div id="training-history">
+                        <div class="text-center p-4" style="color: var(--text-secondary);">Lade History...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        async function loadTrainingStatus() {
+            try {
+                const response = await fetch('/api/training/status');
+                const status = await response.json();
+                updateTrainingStatus(status);
+            } catch (error) {
+                console.error('Error loading training status:', error);
+            }
+        }
+        
+        function updateTrainingStatus(status) {
+            // Signal Predictor
+            const spState = status.signalPredictor;
+            updateModelStatus('sp', spState);
+            
+            // Regime Classifier
+            const rcState = status.regimeClassifier;
+            updateModelStatus('rc', rcState);
+            
+            // Genetic Algorithm
+            const gaState = status.geneticAlgorithm;
+            const gaBadge = document.getElementById('ga-status');
+            if (gaState.status === 'running') {
+                gaBadge.className = 'status-badge running';
+                gaBadge.querySelector('span:last-child').textContent = 'Running';
+                document.getElementById('ga-progress-container').style.display = 'block';
+                document.getElementById('ga-generation').textContent = gaState.generation;
+                document.getElementById('ga-progress-text').textContent = Math.round(gaState.progress) + '%';
+                document.getElementById('ga-progress-bar').style.width = gaState.progress + '%';
+                document.getElementById('ga-best-fitness').textContent = gaState.bestFitness ? gaState.bestFitness.toFixed(4) : '--';
+            } else {
+                gaBadge.className = 'status-badge stopped';
+                gaBadge.querySelector('span:last-child').textContent = 'Idle';
+                document.getElementById('ga-progress-container').style.display = 'none';
+            }
+            
+            // Online Learning
+            const olState = status.onlineLearning;
+            const olBadge = document.getElementById('ol-status');
+            if (olState.enabled) {
+                olBadge.className = 'status-badge running';
+                olBadge.querySelector('span:last-child').textContent = 'Aktiv';
+            } else {
+                olBadge.className = 'status-badge stopped';
+                olBadge.querySelector('span:last-child').textContent = 'Inaktiv';
+            }
+        }
+        
+        function updateModelStatus(prefix, state) {
+            const badge = document.getElementById(prefix + '-status');
+            const progressCard = document.getElementById(prefix + '-progress-card');
+            const progressBar = document.getElementById(prefix + '-progress-bar');
+            const progressText = document.getElementById(prefix + '-progress-text');
+            
+            if (state.status === 'training') {
+                badge.className = 'status-badge running';
+                badge.querySelector('span:last-child').textContent = 'Training...';
+                progressCard.style.display = 'block';
+                progressBar.style.width = state.progress + '%';
+                progressText.textContent = Math.round(state.progress) + '%';
+            } else if (state.status === 'completed') {
+                badge.className = 'status-badge running';
+                badge.querySelector('span:last-child').textContent = 'Completed';
+                progressCard.style.display = 'none';
+            } else {
+                badge.className = 'status-badge stopped';
+                badge.querySelector('span:last-child').textContent = 'Idle';
+                progressCard.style.display = 'none';
+            }
+        }
+        
+        async function trainSignalPredictor() {
+            try {
+                const response = await fetch('/api/training/signal-predictor', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadTrainingStatus();
+                    setInterval(loadTrainingStatus, 1000); // Update frequently during training
+                } else {
+                    alert('Fehler: ' + (data.error || 'Training konnte nicht gestartet werden'));
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function trainRegimeClassifier() {
+            try {
+                const response = await fetch('/api/training/regime-classifier', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadTrainingStatus();
+                    setInterval(loadTrainingStatus, 1000);
+                } else {
+                    alert('Fehler: ' + (data.error || 'Training konnte nicht gestartet werden'));
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function trainBoth() {
+            try {
+                const response = await fetch('/api/training/both', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadTrainingStatus();
+                    setInterval(loadTrainingStatus, 1000);
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function startGA() {
+            try {
+                const response = await fetch('/api/training/genetic-algorithm', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadTrainingStatus();
+                    setInterval(loadTrainingStatus, 2000);
+                } else {
+                    alert('Fehler: ' + (data.error || 'GA konnte nicht gestartet werden'));
+                }
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            }
+        }
+        
+        async function loadTrainingHistory() {
+            try {
+                const response = await fetch('/api/training/history');
+                const data = await response.json();
+                const container = document.getElementById('training-history');
+                if (!data.history || data.history.length === 0) {
+                    container.innerHTML = '<div class="text-center p-4" style="color: var(--text-secondary);">Keine Training History verfügbar</div>';
+                    return;
+                }
+                container.innerHTML = data.history.map(h => `
+                    <div class="card mb-2" style="background: var(--bg-secondary);">
+                        <div class="flex flex-between">
+                            <div>
+                                <div style="font-weight: 600;">${h.model}</div>
+                                <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                                    ${new Date(h.timestamp).toLocaleString('de-DE')}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div>Accuracy: ${(h.accuracy * 100).toFixed(2)}%</div>
+                                <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                                    Dauer: ${h.duration}s
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading training history:', error);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTrainingStatus();
+            loadTrainingHistory();
+            setInterval(loadTrainingStatus, 5000);
+        });
+    </script>
+</body>
+</html>
+

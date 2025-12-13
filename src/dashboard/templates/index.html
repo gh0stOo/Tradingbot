@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .stat-card.positive .value {
+            color: #10b981;
+        }
+        
+        .stat-card.negative .value {
+            color: #ef4444;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .chart-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .chart-card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        
+        .export-section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .export-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .export-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #d1d5db;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+        
+        .time-filter {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .filter-btn.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .filter-btn:hover {
+            background: #764ba2;
+            border-color: #764ba2;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Trading Bot Dashboard</h1>
+            <p>Performance-Übersicht und Statistiken</p>
+        </div>
+        
+        <div id="loading" class="loading">Lade Daten...</div>
+        
+        <div id="content" style="display: none;">
+            <div class="time-filter">
+                <button class="filter-btn active" onclick="loadStats(null)">Alle Zeit</button>
+                <button class="filter-btn" onclick="loadStats(30)">Letzte 30 Tage</button>
+                <button class="filter-btn" onclick="loadStats(7)">Letzte 7 Tage</button>
+            </div>
+            
+            <div class="stats-grid" id="statsGrid">
+                <!-- Stats werden hier eingefügt -->
+            </div>
+            
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h2>Tägliche Performance</h2>
+                    <canvas id="dailyChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2>Wöchentliche Performance</h2>
+                    <canvas id="weeklyChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2>Monatliche Performance</h2>
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="trades-section">
+                <h2>📋 Trade Liste</h2>
+                <div class="time-filter" style="margin-bottom: 20px;">
+                    <button class="filter-btn active" onclick="loadTrades(null)">Alle Trades</button>
+                    <button class="filter-btn" onclick="loadTrades(30)">Letzte 30 Tage</button>
+                    <button class="filter-btn" onclick="loadTrades(7)">Letzte 7 Tage</button>
+                </div>
+                <div id="tradesTableContainer" style="background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); overflow-x: auto;">
+                    <table id="tradesTable" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb;">Zeit</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb;">Symbol</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb;">Side</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb;">Entry</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb;">Exit</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb;">Qty</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb;">PnL</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e5e7eb;">Status</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e5e7eb;">📊</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesTableBody">
+                            <tr><td colspan="9" style="padding: 20px; text-align: center;">Lade Trades...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="export-section" style="margin-top: 30px;">
+                <h2>📥 Trade Export</h2>
+                <div class="export-buttons">
+                    <button class="btn btn-primary" onclick="exportTrades(null)">Alle Trades exportieren (JSON)</button>
+                    <button class="btn btn-secondary" onclick="exportTrades(30)">Letzte 30 Tage exportieren</button>
+                    <button class="btn btn-secondary" onclick="exportTrades(7)">Letzte 7 Tage exportieren</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal for Analysis Data -->
+    <div id="analysisModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto;">
+        <div style="background: white; margin: 50px auto; max-width: 900px; padding: 30px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>📊 Analyse-Daten</h2>
+                <button onclick="closeAnalysisModal()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 1.1em;">✕ Schließen</button>
+            </div>
+            <div id="analysisContent"></div>
+        </div>
+    </div>
+    
+    <script>
+        let currentStats = null;
+        let dailyChart = null;
+        let weeklyChart = null;
+        let monthlyChart = null;
+        
+        // Load all stats on page load - moved to bottom to avoid duplication
+        
+        function updateFilterButtons(activeDays) {
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            if (activeDays === null) {
+                document.querySelectorAll('.filter-btn')[0].classList.add('active');
+            } else if (activeDays === 30) {
+                document.querySelectorAll('.filter-btn')[1].classList.add('active');
+            } else if (activeDays === 7) {
+                document.querySelectorAll('.filter-btn')[2].classList.add('active');
+            }
+        }
+        
+        async function loadStats(days) {
+            try {
+                updateFilterButtons(days);
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('content').style.display = 'none';
+                
+                const url = days ? `/api/dashboard/stats?days=${days}` : '/api/dashboard/stats';
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                // Use allTime or filtered stats
+                const stats = days ? data.allTime : data.allTime;
+                currentStats = stats;
+                
+                renderStats(stats);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('loading').innerHTML = 'Fehler beim Laden der Daten';
+            }
+        }
+        
+        function renderStats(stats) {
+            const grid = document.getElementById('statsGrid');
+            
+            const statCards = [
+                { label: 'Win Rate', value: `${stats.winRate}%`, class: stats.winRate >= 50 ? 'positive' : 'negative' },
+                { label: 'Total PnL', value: `${stats.totalPnL.toFixed(2)} USDT`, class: stats.totalPnL >= 0 ? 'positive' : 'negative' },
+                { label: 'Trades Gesamt', value: stats.totalTrades, class: '' },
+                { label: 'Gewonnene Trades', value: stats.winningTrades, class: 'positive' },
+                { label: 'Verlorene Trades', value: stats.losingTrades, class: 'negative' },
+                { label: 'Offene Trades', value: stats.openTrades, class: '' },
+                { label: 'Durchschnittlicher Gewinn', value: `${stats.averageWin.toFixed(2)} USDT`, class: 'positive' },
+                { label: 'Durchschnittlicher Verlust', value: `${stats.averageLoss.toFixed(2)} USDT`, class: 'negative' },
+                { label: 'Größter Gewinn', value: `${stats.largestWin.toFixed(2)} USDT`, class: 'positive' },
+                { label: 'Größter Verlust', value: `${stats.largestLoss.toFixed(2)} USDT`, class: 'negative' },
+                { label: 'Profit Factor', value: stats.profitFactor.toFixed(2), class: stats.profitFactor >= 1 ? 'positive' : 'negative' },
+                { label: 'Sharpe Ratio', value: stats.sharpeRatio.toFixed(2), class: stats.sharpeRatio >= 1 ? 'positive' : 'negative' },
+                { label: 'Max Drawdown', value: `${stats.maxDrawdown.toFixed(2)} USDT`, class: 'negative' },
+                { label: 'Max Drawdown %', value: `${stats.maxDrawdownPercent.toFixed(2)}%`, class: 'negative' }
+            ];
+            
+            grid.innerHTML = statCards.map(card => `
+                <div class="stat-card ${card.class}">
+                    <h3>${card.label}</h3>
+                    <div class="value">${card.value}</div>
+                </div>
+            `).join('');
+        }
+        
+        async function loadCharts() {
+            try {
+                // Daily Chart
+                const dailyResponse = await fetch('/api/dashboard/stats/daily?days=30');
+                const dailyData = await dailyResponse.json();
+                renderDailyChart(dailyData.dailyPerformance);
+                
+                // Weekly Chart
+                const weeklyResponse = await fetch('/api/dashboard/stats/weekly?weeks=12');
+                const weeklyData = await weeklyResponse.json();
+                renderWeeklyChart(weeklyData.weeklyPerformance);
+                
+                // Monthly Chart
+                const monthlyResponse = await fetch('/api/dashboard/stats/monthly?months=12');
+                const monthlyData = await monthlyResponse.json();
+                renderMonthlyChart(monthlyData.monthlyPerformance);
+            } catch (error) {
+                console.error('Error loading charts:', error);
+            }
+        }
+        
+        function renderDailyChart(data) {
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            
+            if (dailyChart) {
+                dailyChart.destroy();
+            }
+            
+            dailyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.date),
+                    datasets: [{
+                        label: 'Tägliche PnL (USDT)',
+                        data: data.map(d => d.pnl),
+                        borderColor: 'rgb(102, 126, 234)',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderWeeklyChart(data) {
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            
+            if (weeklyChart) {
+                weeklyChart.destroy();
+            }
+            
+            weeklyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.week),
+                    datasets: [{
+                        label: 'Wöchentliche PnL (USDT)',
+                        data: data.map(d => d.pnl),
+                        backgroundColor: data.map(d => d.pnl >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'),
+                        borderColor: data.map(d => d.pnl >= 0 ? 'rgb(16, 185, 129)' : 'rgb(239, 68, 68)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderMonthlyChart(data) {
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            
+            if (monthlyChart) {
+                monthlyChart.destroy();
+            }
+            
+            monthlyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.month),
+                    datasets: [{
+                        label: 'Monatliche PnL (USDT)',
+                        data: data.map(d => d.pnl),
+                        backgroundColor: data.map(d => d.pnl >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'),
+                        borderColor: data.map(d => d.pnl >= 0 ? 'rgb(16, 185, 129)' : 'rgb(239, 68, 68)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        async function exportTrades(days) {
+            try {
+                const url = days ? `/api/dashboard/trades/export?days=${days}` : '/api/dashboard/trades/export';
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                // Download as JSON file
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url_blob = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url_blob;
+                a.download = `trades_export${days ? `_${days}d` : '_all'}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url_blob);
+            } catch (error) {
+                console.error('Error exporting trades:', error);
+                alert('Fehler beim Exportieren der Trades');
+            }
+        }
+        
+        // Auto-refresh every 60 seconds
+        setInterval(() => {
+            loadStats(currentStats ? null : null);
+            loadCharts();
+        }, 60000);
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,196 @@
+{% extends "base_neon.html" %}
+
+{% block title %}Bot Control - Trading Bot{% endblock %}
+{% block page_title %}Bot Control{% endblock %}
+
+{% block content %}
+<!-- Bot Status Card -->
+<div class="card card-neon-cyan mb-6">
+    <div class="card-header">
+        <h2 class="text-lg font-bold">Bot Status</h2>
+        <div id="bot-status-badge" class="status-indicator">
+            <div id="status-dot-inner" class="status-dot stopped"></div>
+            <span id="bot-status-text" class="status-text">Gestoppt</span>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+        <div>
+            <div class="card-title-small">Trading Mode</div>
+            <div id="trading-mode" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">PAPER</div>
+        </div>
+        <div>
+            <div class="card-title-small">Uptime</div>
+            <div id="uptime" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">--</div>
+        </div>
+        <div>
+            <div class="card-title-small">Letzte Ausführung</div>
+            <div id="last-execution" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">--</div>
+        </div>
+    </div>
+</div>
+
+<!-- Control Buttons -->
+<div class="card card-neon-cyan mb-6">
+    <h2 class="text-lg font-bold mb-6">Bot Steuerung</h2>
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <button id="bot-start-btn" onclick="startBot()" class="btn btn-success btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Bot Starten
+        </button>
+        <button id="bot-stop-btn" onclick="stopBot()" class="btn btn-primary btn-lg hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z" />
+            </svg>
+            Bot Stoppen
+        </button>
+        <button id="bot-pause-btn" onclick="pauseBot()" class="btn btn-primary btn-lg hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Bot Pausieren
+        </button>
+        <button onclick="emergencyStop()" class="btn btn-danger btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Emergency Stop
+        </button>
+    </div>
+</div>
+
+<!-- Strategy Selection -->
+<div class="card card-neon-magenta mb-6">
+    <h2 class="text-lg font-bold mb-6">Strategie</h2>
+    <div class="form-group">
+        <label class="form-label">Aktive Strategie</label>
+        <select id="strategy-select" class="form-select">
+            <option value="ensemble">Ensemble (Alle Strategien)</option>
+            <option value="momentum">Momentum Scalping</option>
+            <option value="mean">Mean Reversion</option>
+            <option value="breakout">Breakout Strategy</option>
+        </select>
+    </div>
+</div>
+
+<!-- Risk Level -->
+<div class="card card-neon-violet mb-6">
+    <h2 class="text-lg font-bold mb-6">Risk Level</h2>
+    <div class="form-group">
+        <div class="slider-label-row">
+            <label class="form-label">Risk Level</label>
+            <span id="risk-level-value" class="slider-value">5/10</span>
+        </div>
+        <input type="range" id="risk-slider" min="1" max="10" value="5" step="1" 
+               class="form-input" style="width: 100%;" 
+               oninput="document.getElementById('risk-level-value').textContent = this.value + '/10'">
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Load bot status
+async function loadBotStatus() {
+    try {
+        const response = await fetch('/api/bot/status');
+        const data = await response.json();
+        
+        const dot = document.getElementById('status-dot-inner');
+        const text = document.getElementById('bot-status-text');
+        const mode = document.getElementById('trading-mode');
+        const uptime = document.getElementById('uptime');
+        const lastExec = document.getElementById('last-execution');
+        
+        if (data.status === 'running') {
+            dot.className = 'status-dot running';
+            text.textContent = 'Läuft';
+            document.getElementById('bot-start-btn').classList.add('hidden');
+            document.getElementById('bot-stop-btn').classList.remove('hidden');
+            document.getElementById('bot-pause-btn').classList.remove('hidden');
+        } else if (data.status === 'paused') {
+            dot.className = 'status-dot stopped';
+            text.textContent = 'Pausiert';
+            document.getElementById('bot-start-btn').classList.add('hidden');
+            document.getElementById('bot-stop-btn').classList.remove('hidden');
+            document.getElementById('bot-pause-btn').classList.remove('hidden');
+        } else {
+            dot.className = 'status-dot stopped';
+            text.textContent = 'Gestoppt';
+            document.getElementById('bot-start-btn').classList.remove('hidden');
+            document.getElementById('bot-stop-btn').classList.add('hidden');
+            document.getElementById('bot-pause-btn').classList.add('hidden');
+        }
+        
+        if (mode) mode.textContent = data.mode || 'PAPER';
+        if (uptime) uptime.textContent = data.uptime || '--';
+        if (lastExec) lastExec.textContent = data.lastExecution ? new Date(data.lastExecution).toLocaleString() : '--';
+    } catch (error) {
+        console.error('Error loading bot status:', error);
+    }
+}
+
+async function startBot() {
+    try {
+        const response = await fetch('/api/bot/start', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadBotStatus();
+        } else {
+            alert('Fehler: ' + (data.error || 'Bot konnte nicht gestartet werden'));
+        }
+    } catch (error) {
+        alert('Fehler beim Starten des Bots: ' + error.message);
+    }
+}
+
+async function stopBot() {
+    if (!confirm('Bot wirklich stoppen?')) return;
+    try {
+        const response = await fetch('/api/bot/stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadBotStatus();
+        }
+    } catch (error) {
+        alert('Fehler beim Stoppen des Bots: ' + error.message);
+    }
+}
+
+async function pauseBot() {
+    try {
+        const response = await fetch('/api/bot/pause', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadBotStatus();
+        }
+    } catch (error) {
+        alert('Fehler beim Pausieren des Bots: ' + error.message);
+    }
+}
+
+async function emergencyStop() {
+    if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
+    try {
+        const response = await fetch('/api/bot/emergency-stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            alert('Emergency Stop ausgeführt!');
+            loadBotStatus();
+        }
+    } catch (error) {
+        alert('Fehler beim Emergency Stop: ' + error.message);
+    }
+}
+
+// Load status on page load and refresh every 2 seconds
+document.addEventListener('DOMContentLoaded', () => {
+    loadBotStatus();
+    setInterval(loadBotStatus, 2000);
+});
+</script>
+{% endblock %}
+

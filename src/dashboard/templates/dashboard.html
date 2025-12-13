@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Trading Bot{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Bot Status Card -->
+<div class="card mb-4">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Bot Status</h2>
+            <p class="card-subtitle">Aktueller Status des Trading Bots</p>
+        </div>
+        <div id="bot-status-badge" class="status-badge stopped">
+            <span class="status-dot"></span>
+            <span id="bot-status-text">Gestoppt</span>
+        </div>
+    </div>
+    <div class="flex flex-between">
+        <div>
+            <div class="stat-label">Trading Mode</div>
+            <div class="stat-value" style="font-size: 1.25rem;" id="trading-mode">PAPER</div>
+        </div>
+        <div>
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" style="font-size: 1.25rem;" id="uptime">--</div>
+        </div>
+        <div>
+            <div class="stat-label">Letzte Ausführung</div>
+            <div class="stat-value" style="font-size: 1.25rem;" id="last-execution">--</div>
+        </div>
+        <div>
+            <button id="bot-start-btn" class="btn btn-success btn-lg" onclick="startBot()">
+                <i class="fas fa-play"></i>
+                Bot Starten
+            </button>
+            <button id="bot-stop-btn" class="btn btn-danger btn-lg hidden" onclick="stopBot()">
+                <i class="fas fa-stop"></i>
+                Bot Stoppen
+            </button>
+            <button id="bot-pause-btn" class="btn btn-warning btn-lg hidden" onclick="pauseBot()">
+                <i class="fas fa-pause"></i>
+                Pausieren
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Performance Stats -->
+<div class="stats-grid">
+    <div class="stat-card positive">
+        <div class="stat-label">Total PnL (Heute)</div>
+        <div class="stat-value positive" id="pnl-today">$0.00</div>
+        <div class="stat-change positive">
+            <i class="fas fa-arrow-up"></i>
+            <span id="pnl-today-change">+0.00%</span>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-value" id="win-rate">0%</div>
+        <div class="stat-change" id="win-rate-change">
+            <span>Basis: Gesamt</span>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Aktive Trades</div>
+        <div class="stat-value" id="active-trades">0</div>
+        <div class="stat-change">
+            <span id="active-trades-info">Offene Positionen</span>
+        </div>
+    </div>
+    
+    <div class="stat-card positive">
+        <div class="stat-label">Equity</div>
+        <div class="stat-value positive" id="equity">$10,000.00</div>
+        <div class="stat-change">
+            <span>Kontostand</span>
+        </div>
+    </div>
+</div>
+
+<!-- Active Trades -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Aktive Trades</h2>
+    </div>
+    <div id="active-trades-container">
+        <div class="text-center p-4" style="color: var(--text-secondary);">
+            Keine aktiven Trades
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Quick Actions</h2>
+    </div>
+    <div class="flex gap-2" style="flex-wrap: wrap;">
+        <button class="btn btn-primary" onclick="window.location.href='/bot-control'">
+            <i class="fas fa-robot"></i>
+            Bot Control
+        </button>
+        <button class="btn btn-primary" onclick="window.location.href='/training'">
+            <i class="fas fa-brain"></i>
+            KI Training
+        </button>
+        <button class="btn btn-primary" onclick="window.location.href='/backtesting'">
+            <i class="fas fa-chart-line"></i>
+            Backtesting
+        </button>
+        <button class="btn btn-danger" onclick="emergencyStop()">
+            <i class="fas fa-exclamation-triangle"></i>
+            Emergency Stop
+        </button>
+    </div>
+</div>
+
+<!-- Charts Grid -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--spacing-lg);">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Tägliche Performance</h2>
+        </div>
+        <div class="chart-container">
+            <canvas id="dailyChart"></canvas>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Price Movement</h2>
+        </div>
+        <div class="chart-container">
+            <canvas id="priceChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let dailyChart = null;
+let priceChart = null;
+
+// Load initial data
+async function loadDashboardData() {
+    try {
+        // Load bot status
+        const statusResponse = await fetch('/api/bot/status');
+        const statusData = await statusResponse.json();
+        updateBotStatus(statusData);
+        
+        // Load stats
+        const statsResponse = await fetch('/api/dashboard/stats');
+        const statsData = await statsResponse.json();
+        updateStats(statsData.allTime);
+        
+        // Load active positions
+        const positionsResponse = await fetch('/api/positions/active');
+        const positionsData = await positionsResponse.json();
+        updateActiveTrades(positionsData);
+        
+        // Load charts
+        loadCharts();
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+    }
+}
+
+function updateBotStatus(status) {
+    const badge = document.getElementById('bot-status-badge');
+    const text = document.getElementById('bot-status-text');
+    const startBtn = document.getElementById('bot-start-btn');
+    const stopBtn = document.getElementById('bot-stop-btn');
+    const pauseBtn = document.getElementById('bot-pause-btn');
+    
+    if (status.status === 'running') {
+        badge.className = 'status-badge running';
+        text.textContent = 'Läuft';
+        startBtn.classList.add('hidden');
+        stopBtn.classList.remove('hidden');
+        pauseBtn.classList.remove('hidden');
+    } else if (status.status === 'paused') {
+        badge.className = 'status-badge paused';
+        text.textContent = 'Pausiert';
+        startBtn.classList.add('hidden');
+        stopBtn.classList.remove('hidden');
+        pauseBtn.classList.remove('hidden');
+    } else {
+        badge.className = 'status-badge stopped';
+        text.textContent = 'Gestoppt';
+        startBtn.classList.remove('hidden');
+        stopBtn.classList.add('hidden');
+        pauseBtn.classList.add('hidden');
+    }
+    
+    document.getElementById('trading-mode').textContent = status.mode || 'PAPER';
+    document.getElementById('uptime').textContent = status.uptime || '--';
+    document.getElementById('last-execution').textContent = status.lastExecution || '--';
+}
+
+function updateStats(stats) {
+    document.getElementById('pnl-today').textContent = `$${stats.totalPnL?.toFixed(2) || '0.00'}`;
+    document.getElementById('win-rate').textContent = `${stats.winRate || 0}%`;
+    document.getElementById('active-trades').textContent = stats.openTrades || 0;
+    document.getElementById('equity').textContent = `$${(10000 + (stats.totalPnL || 0)).toFixed(2)}`;
+}
+
+function updateActiveTrades(data) {
+    const container = document.getElementById('active-trades-container');
+    if (!data.positions || data.positions.length === 0) {
+        container.innerHTML = '<div class="text-center p-4" style="color: var(--text-secondary);">Keine aktiven Trades</div>';
+        return;
+    }
+    
+    container.innerHTML = data.positions.map(pos => `
+        <div class="card mb-2" style="background: var(--bg-secondary);">
+            <div class="flex flex-between">
+                <div>
+                    <div style="font-weight: 600; font-size: 1.125rem;">${pos.symbol}</div>
+                    <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                        ${pos.side} @ $${pos.entry_price?.toFixed(4) || '0.0000'}
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div style="font-weight: 600; color: ${(pos.unrealized_pnl || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">
+                        $${(pos.unrealized_pnl || 0).toFixed(2)}
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                        Current: $${pos.current_price?.toFixed(4) || '0.0000'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function loadCharts() {
+    try {
+        // Daily performance chart
+        const dailyResponse = await fetch('/api/dashboard/stats/daily?days=30');
+        const dailyData = await dailyResponse.json();
+        
+        const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+        if (dailyChart) dailyChart.destroy();
+        
+        dailyChart = new Chart(dailyCtx, {
+            type: 'line',
+            data: {
+                labels: dailyData.dailyPerformance.map(d => d.date),
+                datasets: [{
+                    label: 'Tägliche PnL',
+                    data: dailyData.dailyPerformance.map(d => d.pnl),
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: { color: 'var(--text-secondary)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    x: {
+                        ticks: { color: 'var(--text-secondary)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading charts:', error);
+    }
+}
+
+async function startBot() {
+    try {
+        const response = await fetch('/api/bot/start', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadDashboardData();
+        } else {
+            alert('Fehler: ' + (data.error || 'Bot konnte nicht gestartet werden'));
+        }
+    } catch (error) {
+        alert('Fehler beim Starten des Bots: ' + error.message);
+    }
+}
+
+async function stopBot() {
+    if (!confirm('Bot wirklich stoppen?')) return;
+    try {
+        const response = await fetch('/api/bot/stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadDashboardData();
+        }
+    } catch (error) {
+        alert('Fehler beim Stoppen des Bots: ' + error.message);
+    }
+}
+
+async function pauseBot() {
+    try {
+        const response = await fetch('/api/bot/pause', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            loadDashboardData();
+        }
+    } catch (error) {
+        alert('Fehler beim Pausieren des Bots: ' + error.message);
+    }
+}
+
+async function emergencyStop() {
+    if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
+    try {
+        const response = await fetch('/api/bot/emergency-stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            alert('Emergency Stop ausgeführt!');
+            loadDashboardData();
+        }
+    } catch (error) {
+        alert('Fehler beim Emergency Stop: ' + error.message);
+    }
+}
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboardData();
+    // Auto-refresh every 10 seconds
+    setInterval(loadDashboardData, 10000);
+});
+</script>
+{% endblock %}
+
