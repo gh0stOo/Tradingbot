@@ -120,6 +120,7 @@ class VolatilityExpansionStrategy(BaseStrategy):
                         stop_loss=stop_loss,
                         take_profit=take_profit,
                         confidence=float(confidence),
+                        timestamp=market_event.timestamp,  # Set timestamp from market event
                         reasoning=f"Volatility expansion breakout: Compression ({atr_to_range_ratio:.2f}) → Expansion ({expansion_ratio:.2f}x)",
                         source=f"{self.name}_strategy",
                         metadata={
@@ -148,6 +149,7 @@ class VolatilityExpansionStrategy(BaseStrategy):
                         stop_loss=stop_loss,
                         take_profit=take_profit,
                         confidence=float(confidence),
+                        timestamp=market_event.timestamp,  # Set timestamp from market event
                         reasoning=f"Volatility expansion breakdown: Compression ({atr_to_range_ratio:.2f}) → Expansion ({expansion_ratio:.2f}x)",
                         source=f"{self.name}_strategy",
                         metadata={

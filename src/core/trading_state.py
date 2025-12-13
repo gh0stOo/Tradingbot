@@ -234,6 +234,7 @@ class TradingState:
             
             self._open_positions[symbol] = position
             self._update_exposure(symbol, quantity * entry_price)
+            self._update_equity()  # Update equity after position change
             self._notify_listeners()
             logger.info(f"Position added: {symbol} {side} {quantity} @ {entry_price}")
             return True
@@ -259,6 +260,7 @@ class TradingState:
             # Update daily PnL and trade count
             self._daily_pnl += realized_pnl
             self._trades_today += 1
+            self._update_equity()  # Update equity after position change
             self._notify_listeners()
             
             logger.info(f"Position removed: {symbol}, realized_pnl={realized_pnl}")
@@ -340,6 +342,7 @@ class TradingState:
                 return False
             
             self._cash -= amount
+            self._update_equity()  # Update equity after cash change
             logger.debug(f"Cash debited: {amount}, remaining: {self._cash}")
             return True
     
@@ -347,6 +350,7 @@ class TradingState:
         """Credit cash (atomic)"""
         with self._lock:
             self._cash += amount
+            self._update_equity()  # Update equity after cash change
             logger.debug(f"Cash credited: {amount}, new balance: {self._cash}")
     
     def reset_daily_stats(self) -> None:

@@ -98,7 +98,14 @@ def main():
     db = Database(db_path)
     logger.info(f"Database initialized at {db_path}")
     
-    # Initialize State Persistence
+    # Initialize BotStateManager
+    bot_state_manager = BotStateManager()
+    
+    # Initialize TradingState FIRST (before StatePersistence needs it)
+    initial_equity = Decimal(str(get_equity(config, bybit_client)))
+    trading_state = TradingState(initial_cash=initial_equity)
+    
+    # Initialize State Persistence (after TradingState is created)
     from core.state_persistence import StatePersistence
     state_persistence = None
     try:
@@ -113,13 +120,6 @@ def main():
     except Exception as e:
         logger.warning(f"State persistence initialization failed: {e}")
         state_persistence = None
-    
-    # Initialize BotStateManager
-    bot_state_manager = BotStateManager()
-    
-    # Initialize TradingState
-    initial_equity = Decimal(str(get_equity(config, bybit_client)))
-    trading_state = TradingState(initial_cash=initial_equity)
     
     # Initialize RiskEngine
     risk_engine = RiskEngine(config, trading_state)

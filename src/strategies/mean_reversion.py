@@ -127,6 +127,7 @@ class MeanReversionStrategy(BaseStrategy):
                             stop_loss=stop_loss,
                             take_profit=take_profit,
                             confidence=float(confidence),
+                            timestamp=market_event.timestamp,  # Set timestamp from market event
                             reasoning=f"Mean reversion fade: Fast move down ({price_change*100:.2f}%) + Volume climax ({volume_ratio:.2f}x) + Volatility collapse",
                             source=f"{self.name}_strategy",
                             metadata={
@@ -159,6 +160,7 @@ class MeanReversionStrategy(BaseStrategy):
                             stop_loss=stop_loss,
                             take_profit=take_profit,
                             confidence=float(confidence),
+                            timestamp=market_event.timestamp,  # Set timestamp from market event
                             reasoning=f"Mean reversion fade: Fast move up ({price_change*100:.2f}%) + Volume climax ({volume_ratio:.2f}x) + Volatility collapse",
                             source=f"{self.name}_strategy",
                             metadata={

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from events.signal_event import SignalEvent
 from events.order_intent_event import OrderIntentEvent
 from core.trading_state import TradingState
+from core.position_sizer import PositionSizer
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class StrategyAllocator:
         self.config = config
         self.strategies_config = config.get("strategies", {})
         self.trading_state = trading_state
+        self.position_sizer = PositionSizer()
         
         # Track trades per strategy per day
         self._trades_per_strategy_today: Dict[str, int] = {}
@@ -141,11 +143,29 @@ class StrategyAllocator:
         """
         Convert SignalEvent to OrderIntentEvent.
         
-        Note: Position sizing is done later by RiskEngine or PositionSizer.
+        Position sizing is calculated here using PositionSizer.
         """
         try:
-            # For now, use signal quantity if provided, otherwise will be sized by RiskEngine
-            quantity = signal.quantity if signal.quantity else Decimal("0")
+            # Use signal quantity if explicitly provided, otherwise calculate
+            if signal.quantity and signal.quantity > 0:
+                quantity = signal.quantity
+            else:
+                # Calculate position size based on risk parameters
+                equity = self.trading_state.equity
+                risk_config = self.config.get("risk", {})
+                max_risk_pct = Decimal(str(risk_config.get("riskPct", 0.002)))  # Default 0.2%
+                
+                quantity = self.position_sizer.calculate_position_size(
+                    equity=equity,
+                    entry_price=signal.entry_price,
+                    stop_loss=signal.stop_loss,
+                    max_risk_pct=max_risk_pct,
+                    side=signal.side
+                )
+                
+                if quantity <= 0:
+                    logger.warning(f"Position size calculated as 0 for {signal.symbol}, skipping order intent")
+                    return None
             
             order_intent = OrderIntentEvent(
                 symbol=signal.symbol,

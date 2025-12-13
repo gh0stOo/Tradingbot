@@ -152,6 +152,7 @@ class TrendContinuationStrategy(BaseStrategy):
                         stop_loss=stop_loss,
                         take_profit=take_profit,
                         confidence=float(confidence),
+                        timestamp=market_event.timestamp,  # Set timestamp from market event
                         reasoning=f"Trend continuation: HTF uptrend + Pullback ({pullback_size*100:.2f}%) + Volatility reset ({volatility_ratio:.2f})",
                         source=f"{self.name}_strategy",
                         metadata={
@@ -180,6 +181,7 @@ class TrendContinuationStrategy(BaseStrategy):
                         stop_loss=stop_loss,
                         take_profit=take_profit,
                         confidence=float(confidence),
+                        timestamp=market_event.timestamp,  # Set timestamp from market event
                         reasoning=f"Trend continuation: HTF downtrend + Pullback ({pullback_size*100:.2f}%) + Volatility reset ({volatility_ratio:.2f})",
                         source=f"{self.name}_strategy",
                         metadata={

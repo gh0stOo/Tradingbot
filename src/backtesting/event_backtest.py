@@ -41,8 +41,14 @@ class EventBacktest:
     
     def __init__(
         self,
-        initial_equity: Decimal = Decimal("10000"),
-        config: Optional[Dict] = None
+        trading_state: Optional[TradingState] = None,
+        risk_engine: Optional[RiskEngine] = None,
+        strategy_allocator: Optional[StrategyAllocator] = None,
+        order_executor: Optional[OrderExecutor] = None,
+        strategies: Optional[List[BaseStrategy]] = None,
+        config: Optional[Dict] = None,
+        market_data: Optional[Any] = None,
+        initial_equity: Decimal = Decimal("10000")
     ) -> None:
         """
         Initialize backtesting engine.
@@ -61,12 +67,13 @@ class EventBacktest:
         self.latency_ms = self.config.get("latencyMs", 50)  # 50ms latency
         self.order_rejection_rate = self.config.get("orderRejectionRate", 0.01)  # 1%
         
-        # Components (will be initialized in run_backtest)
-        self.trading_state: Optional[TradingState] = None
-        self.risk_engine: Optional[RiskEngine] = None
-        self.strategy_allocator: Optional[StrategyAllocator] = None
-        self.order_executor: Optional[OrderExecutor] = None
-        self.strategies: List[BaseStrategy] = []
+        # Components
+        self.trading_state = trading_state
+        self.risk_engine = risk_engine
+        self.strategy_allocator = strategy_allocator
+        self.order_executor = order_executor
+        self.strategies = strategies or []
+        self.market_data = market_data
         
         # Results
         self.results: Dict[str, Any] = {}
@@ -216,9 +223,14 @@ class EventBacktest:
         current_idx: int,
         window: int = 50
     ) -> List[List]:
-        """Get klines window for current index"""
+        """
+        Get klines window UP TO (but not including) current index.
+        
+        This prevents lookahead bias - strategies should only use historical data
+        that would have been available at the time of the trade.
+        """
         start_idx = max(0, current_idx - window)
-        end_idx = current_idx + 1
+        end_idx = current_idx  # EXCLUDE current candle (no lookahead!)
         
         window_data = data.iloc[start_idx:end_idx]
         

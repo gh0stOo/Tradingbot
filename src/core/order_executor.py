@@ -62,8 +62,18 @@ class OrderExecutor:
         
         intent = approval_event.original_intent
         
-        # Generate client order ID (idempotency key)
-        client_order_id = f"{intent.strategy_name}_{uuid.uuid4().hex[:16]}"
+        # Generate deterministic client order ID for idempotency
+        # Use event_id from original_intent as base for deterministic ID
+        # This ensures same intent always gets same client_order_id
+        import hashlib
+        if intent.event_id:
+            base_id = intent.event_id
+        else:
+            # Fallback: create deterministic ID from intent properties
+            intent_str = f"{intent.symbol}_{intent.side}_{float(intent.entry_price):.8f}_{float(intent.quantity):.8f}_{intent.strategy_name}"
+            base_id = hashlib.md5(intent_str.encode()).hexdigest()[:16]
+        
+        client_order_id = f"ORDER_{base_id}"
         
         # Check if order already exists (idempotency check)
         existing_order = self.trading_state.get_order(client_order_id)
@@ -149,7 +159,7 @@ class OrderExecutor:
         
         # Debit cash (for long positions, we need margin)
         notional_value = order.quantity * filled_price
-        margin_required = notional_value / Decimal("10")  # 10x leverage
+        margin_required = notional_value / self.leverage
         self.trading_state.debit_cash(margin_required)
         
         logger.info(f"Paper order executed: {order.client_order_id} {order.symbol} {order.side} {order.quantity}")

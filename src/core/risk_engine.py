@@ -205,14 +205,30 @@ class RiskEngine:
         if equity <= 0:
             return {"passed": False, "reason": "Equity is zero or negative"}
         
-        # Calculate risk per unit
+        # Validate stop loss is reasonable
         if side == "Buy":
+            if stop_loss >= entry_price:
+                return {"passed": False, "reason": "Stop loss must be below entry price for long position"}
+            if stop_loss <= 0:
+                return {"passed": False, "reason": "Stop loss must be positive"}
             risk_per_unit = entry_price - stop_loss
         else:  # Sell
+            if stop_loss <= entry_price:
+                return {"passed": False, "reason": "Stop loss must be above entry price for short position"}
+            if stop_loss <= 0:
+                return {"passed": False, "reason": "Stop loss must be positive"}
             risk_per_unit = stop_loss - entry_price
         
         if risk_per_unit <= 0:
             return {"passed": False, "reason": "Invalid stop loss (risk per unit <= 0)"}
+        
+        # Check stop loss distance is reasonable (not too wide)
+        risk_pct_of_price = risk_per_unit / entry_price
+        if risk_pct_of_price > Decimal("0.20"):  # Max 20% risk
+            return {
+                "passed": False,
+                "reason": f"Stop loss too wide: {float(risk_pct_of_price * 100):.2f}% of price (max 20%)"
+            }
         
         # Total risk for this trade
         total_risk = risk_per_unit * quantity
