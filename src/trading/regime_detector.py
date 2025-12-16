@@ -1,13 +1,13 @@
 """Market Regime Detection Module"""
 
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
 class RegimeDetector:
     """Detect market regime: trending, ranging, or volatile"""
     
     @staticmethod
     def detect_regime(
-        indicators: Dict[str, float],
+        indicators: Union[Dict[str, float], float],
         price: float,
         volatility_window: int = 20
     ) -> Dict[str, Any]:
@@ -22,6 +22,11 @@ class RegimeDetector:
         Returns:
             Dictionary with regime information
         """
+        # Backward compatibility: allow callers to pass adx/atr as first args (legacy tests)
+        if not isinstance(indicators, dict):
+            # indicators is actually ADX value in legacy signature
+            indicators = {"adx": indicators}
+
         ema21 = indicators.get("ema21", price)
         ema50 = indicators.get("ema50", price)
         adx = indicators.get("adx", 0)

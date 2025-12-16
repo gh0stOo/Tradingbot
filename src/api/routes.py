@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -38,7 +38,7 @@ async def post_trade_signal(signal: TradeSignal) -> Dict[str, Any]:
     return {
         "success": True,
         "received": True,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "signal": signal.dict()
     }
 
@@ -59,33 +59,26 @@ async def execute_trade(trade: TradeExecute) -> Dict[str, Any]:
 
 @router.get("/api/v1/health")
 async def health_check() -> Dict[str, Any]:
-    """Comprehensive health check endpoint"""
-    from datetime import datetime as dt
-
+    """Comprehensive health check endpoint - lightweight and fast"""
+    
     try:
+        # Simple, fast health check without blocking operations
         health_result = {
             "status": "healthy",
-            "timestamp": dt.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "checks": {
                 "api_server": {
                     "status": "healthy",
                     "response_time_ms": 1
-                },
-                "database": {
-                    "status": "healthy",
-                    "note": "Check performed when bot initializes"
-                },
-                "exchange_connectivity": {
-                    "status": "unknown",
-                    "note": "Check performed when bot connects"
                 }
             }
         }
         return health_result
     except Exception as e:
+        # Ensure we always return something, even on error
         return {
             "status": "unhealthy",
-            "timestamp": dt.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
 
@@ -103,13 +96,13 @@ async def get_status() -> Dict[str, Any]:
             "uptime": state_manager.get_status().get("uptime"),
             "start_time": state_manager.start_time.isoformat() if state_manager.start_time else None,
             "error": state_manager.error_message,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.get("/api/v1/system")
@@ -130,12 +123,12 @@ async def system_info() -> Dict[str, Any]:
                 "memory_percent": psutil.virtual_memory().percent,
                 "disk_percent": psutil.disk_usage('/').percent
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.post("/api/v1/bot/start")
@@ -150,7 +143,7 @@ async def start_bot() -> Dict[str, Any]:
                 "success": False,
                 "message": "Bot is already running",
                 "status": state_manager.status.value,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
         state_manager.set_status(BotStatus.RUNNING)
@@ -158,13 +151,13 @@ async def start_bot() -> Dict[str, Any]:
             "success": True,
             "message": "Bot started successfully",
             "status": state_manager.status.value,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.post("/api/v1/bot/stop")
@@ -179,7 +172,7 @@ async def stop_bot() -> Dict[str, Any]:
                 "success": False,
                 "message": "Bot is already stopped",
                 "status": state_manager.status.value,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
         state_manager.set_status(BotStatus.STOPPED)
@@ -187,13 +180,13 @@ async def stop_bot() -> Dict[str, Any]:
             "success": True,
             "message": "Bot stopped successfully",
             "status": state_manager.status.value,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.post("/api/v1/bot/pause")
@@ -208,7 +201,7 @@ async def pause_bot() -> Dict[str, Any]:
                 "success": False,
                 "message": "Bot must be running to pause",
                 "status": state_manager.status.value,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
         state_manager.pause_bot()
@@ -216,13 +209,13 @@ async def pause_bot() -> Dict[str, Any]:
             "success": True,
             "message": "Bot paused successfully",
             "status": state_manager.status.value,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.post("/api/v1/bot/resume")
@@ -237,7 +230,7 @@ async def resume_bot() -> Dict[str, Any]:
                 "success": False,
                 "message": "Bot must be paused to resume",
                 "status": state_manager.status.value,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
         state_manager.resume_bot()
@@ -245,13 +238,13 @@ async def resume_bot() -> Dict[str, Any]:
             "success": True,
             "message": "Bot resumed successfully",
             "status": state_manager.status.value,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 @router.post("/api/v1/bot/emergency-stop")
@@ -266,12 +259,12 @@ async def emergency_stop() -> Dict[str, Any]:
             "success": True,
             "message": "Emergency stop executed",
             "status": state_manager.status.value,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 

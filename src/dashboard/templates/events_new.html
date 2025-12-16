@@ -1,0 +1,232 @@
+{% extends "base_neon.html" %}
+
+{% block title %}Events - Trading Bot{% endblock %}
+{% block page_title %}Operations Events{% endblock %}
+
+{% block content %}
+<!-- Events Container -->
+<div class="card card-neon-cyan mb-6">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+            <h2 class="text-lg font-bold">Operational Events Log</h2>
+            <p class="text-sm text-gray-400">Real-time operational events (newest first, max 100)</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span id="event-count" class="text-sm text-gray-400"></span>
+        </div>
+    </div>
+
+    <!-- Events Log Container -->
+    <div id="events-log" style="
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(0, 255, 255, 0.3);
+        border-radius: 4px;
+        padding: 1rem;
+        max-height: 500px;
+        overflow-y: auto;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 0.875rem;
+        line-height: 1.6;
+    ">
+        <div style="text-align: center; color: var(--neon-cyan); padding: 2rem;">
+            Loading events...
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+        <button onclick="clearEvents()" class="btn btn-danger btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Clear Events
+        </button>
+        <button onclick="toggleAutoPolling()" id="auto-poll-btn" class="btn btn-secondary btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span id="auto-poll-text">Stop Auto-Polling</span>
+        </button>
+    </div>
+</div>
+
+<!-- Info Box -->
+<div style="background: rgba(0, 255, 255, 0.1); border: 1px solid var(--neon-cyan); border-radius: 4px; padding: 1rem; margin-top: 2rem;">
+    <p class="text-sm text-gray-300">
+        <strong>Note:</strong> Events are stored in-memory with a maximum of 100 entries.
+        Older events are automatically discarded when the buffer is full.
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/ui-helpers.js"></script>
+<script>
+// ============ STATE ============
+
+let events = [];
+let autoPollingEnabled = true;
+let pollingInterval = null;
+
+// ============ INITIALIZATION ============
+
+document.addEventListener('DOMContentLoaded', async () => {
+    loadEvents();
+    // Start auto-polling every 2 seconds
+    pollingInterval = setInterval(loadEvents, 2000);
+});
+
+// ============ LOAD EVENTS ============
+
+async function loadEvents() {
+    try {
+        const response = await fetch('/api/events?limit=50');
+        if (!response.ok) {
+            renderEventsError('Failed to load events');
+            return;
+        }
+
+        const data = await response.json();
+        if (!data.success) {
+            renderEventsError('API error: ' + data.error);
+            return;
+        }
+
+        events = data.events || [];
+        renderEvents();
+    } catch (error) {
+        console.error('Error loading events:', error);
+        renderEventsError('Network error: ' + error.message);
+    }
+}
+
+// ============ RENDER EVENTS ============
+
+function renderEvents() {
+    const logsContainer = document.getElementById('events-log');
+    const countElement = document.getElementById('event-count');
+
+    // Update count
+    countElement.textContent = `${events.length} events`;
+
+    // Empty state
+    if (events.length === 0) {
+        logsContainer.innerHTML = '<div style="text-align: center; color: var(--neon-cyan); padding: 2rem;">No events yet</div>';
+        return;
+    }
+
+    // Build log display
+    let html = '';
+    events.forEach((event, index) => {
+        const timestamp = new Date(event.timestamp).toLocaleTimeString();
+        const levelColor = getLevelColor(event.level);
+        const levelIcon = getLevelIcon(event.level);
+
+        html += `
+            <div style="margin-bottom: 0.75rem; padding: 0.5rem; border-left: 2px solid ${levelColor}; padding-left: 0.75rem;">
+                <div style="color: ${levelColor}; font-weight: bold;">
+                    ${levelIcon} ${event.level.toUpperCase()} | ${event.type} | ${timestamp}
+                </div>
+                <div style="color: var(--neon-cyan); margin-top: 0.25rem;">
+                    ${escapeHtml(event.title)}
+                </div>
+                ${event.message ? `<div style="color: #999; margin-top: 0.25rem; font-size: 0.8rem;">
+                    ${escapeHtml(event.message)}
+                </div>` : ''}
+            </div>
+        `;
+    });
+
+    logsContainer.innerHTML = html;
+    logsContainer.scrollTop = logsContainer.scrollHeight;
+}
+
+function renderEventsError(message) {
+    const logsContainer = document.getElementById('events-log');
+    logsContainer.innerHTML = `<div style="color: var(--neon-red);">${escapeHtml(message)}</div>`;
+}
+
+// ============ CLEAR EVENTS ============
+
+async function clearEvents() {
+    if (!confirm('Clear all events from the log?')) return;
+
+    try {
+        const response = await fetch('/api/events/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            events = [];
+            renderEvents();
+            showSuccess('Events Cleared', `Cleared ${data.cleared_count} events`);
+        } else {
+            showError('Clear Failed', data.error);
+        }
+    } catch (error) {
+        console.error('Error clearing events:', error);
+        showError('Network Error', error.message);
+    }
+}
+
+// ============ AUTO-POLLING TOGGLE ============
+
+function toggleAutoPolling() {
+    autoPollingEnabled = !autoPollingEnabled;
+    const btn = document.getElementById('auto-poll-btn');
+    const text = document.getElementById('auto-poll-text');
+
+    if (autoPollingEnabled) {
+        pollingInterval = setInterval(loadEvents, 2000);
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-success');
+        text.textContent = 'Stop Auto-Polling';
+        showInfo('Auto-Polling', 'Auto-polling enabled');
+    } else {
+        clearInterval(pollingInterval);
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-secondary');
+        text.textContent = 'Start Auto-Polling';
+        showInfo('Auto-Polling', 'Auto-polling disabled');
+    }
+}
+
+// ============ HELPER FUNCTIONS ============
+
+function getLevelColor(level) {
+    switch (level) {
+        case 'success':
+            return '#00ff00';  // green
+        case 'error':
+            return '#ff0055';  // red/magenta
+        case 'warning':
+            return '#ffff00';  // yellow
+        case 'info':
+        default:
+            return '#00ffff';  // cyan
+    }
+}
+
+function getLevelIcon(level) {
+    switch (level) {
+        case 'success':
+            return '✓';
+        case 'error':
+            return '✗';
+        case 'warning':
+            return '⚠';
+        case 'info':
+        default:
+            return 'ℹ';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

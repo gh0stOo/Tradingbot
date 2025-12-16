@@ -1,7 +1,6 @@
 """Crypto Mean Reversion Strategy (Liquidation Fade)"""
 
 from typing import List
-from decimal import Decimal
 import pandas as pd
 from events.market_event import MarketEvent
 from events.signal_event import SignalEvent
@@ -26,10 +25,11 @@ class MeanReversionStrategy(BaseStrategy):
         
         # Strategy parameters
         self.config = config.get("meanReversion", {})
-        self.fast_move_threshold = self.config.get("fastMoveThreshold", 0.03)  # 3% move
-        self.volume_climax_ratio = self.config.get("volumeClimaxRatio", 2.0)  # 2x avg volume
+        # Temporarily reduced thresholds for testing
+        self.fast_move_threshold = self.config.get("fastMoveThreshold", 0.01)  # 1% move (reduced from 3%)
+        self.volume_climax_ratio = self.config.get("volumeClimaxRatio", 1.5)  # 1.5x avg volume (reduced from 2x)
         self.max_hold_minutes = self.config.get("maxHoldMinutes", 60)
-        self.min_confidence = self.config.get("minConfidence", 0.60)
+        self.min_confidence = self.config.get("minConfidence", 0.50)  # 50% (reduced from 60%)
     
     def generate_signals(self, market_event: MarketEvent) -> List[SignalEvent]:
         """
@@ -60,12 +60,12 @@ class MeanReversionStrategy(BaseStrategy):
             if not indicators_dict:
                 return []
             
-            current_price = Decimal(str(market_event.price))
-            current_volume = Decimal(str(market_event.volume))
+            current_price = float(market_event.price)
+            current_volume = float(market_event.volume)
             
             # Check for Fast Move
             lookback_10 = 10
-            price_10_bars_ago = df["close"].iloc[-lookback_10]
+            price_10_bars_ago = float(df["close"].iloc[-lookback_10])
             price_change = abs(current_price - price_10_bars_ago) / price_10_bars_ago
             
             if price_change < self.fast_move_threshold:
@@ -76,7 +76,7 @@ class MeanReversionStrategy(BaseStrategy):
             if avg_volume <= 0:
                 return []
             
-            volume_ratio = float(current_volume) / avg_volume
+            volume_ratio = current_volume / avg_volume
             if volume_ratio < self.volume_climax_ratio:
                 return []  # Not a volume climax
             
@@ -111,10 +111,10 @@ class MeanReversionStrategy(BaseStrategy):
                 confidence = min(0.85, 0.60 + (price_change - self.fast_move_threshold) * 2.0)
                 if confidence >= self.min_confidence:
                     # Very tight stop (1 ATR) and conservative target (1.5 R)
-                    atr = indicators_dict.get("atr", 0)
+                    atr = float(indicators_dict.get("atr", 0))
                     if atr > 0:
-                        sl_distance = Decimal(str(atr)) * Decimal("1.0")
-                        tp_distance = sl_distance * Decimal("1.5")  # Conservative 1.5R
+                        sl_distance = atr * 1.0
+                        tp_distance = sl_distance * 1.5  # Conservative 1.5R
                         
                         stop_loss = current_price - sl_distance
                         take_profit = current_price + tp_distance  # Fade down move → buy
@@ -144,10 +144,10 @@ class MeanReversionStrategy(BaseStrategy):
                 # Fast move up, fade it (sell signal)
                 confidence = min(0.85, 0.60 + (price_change - self.fast_move_threshold) * 2.0)
                 if confidence >= self.min_confidence:
-                    atr = indicators_dict.get("atr", 0)
+                    atr = float(indicators_dict.get("atr", 0))
                     if atr > 0:
-                        sl_distance = Decimal(str(atr)) * Decimal("1.0")
-                        tp_distance = sl_distance * Decimal("1.5")
+                        sl_distance = atr * 1.0
+                        tp_distance = sl_distance * 1.5
                         
                         stop_loss = current_price + sl_distance
                         take_profit = current_price - tp_distance  # Fade up move → sell

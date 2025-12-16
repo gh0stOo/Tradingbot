@@ -38,14 +38,34 @@
                     </label>
                 </div>
             </div>
-            <button onclick="startBacktest()" class="btn btn-primary btn-lg">
+            <button id="backtest-start-btn" onclick="startBacktest()" class="btn btn-primary btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Backtest starten
             </button>
+            <button id="backtest-cancel-btn" onclick="cancelBacktest()" class="btn btn-danger btn-lg hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Backtest abbrechen
+            </button>
         </div>
+
+        <!-- Progress Bar -->
+        <div id="progress-container" style="display: none; margin-top: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span class="card-subtitle">Fortschritt</span>
+                <span id="progress-percent" class="card-subtitle" style="color: var(--neon-cyan); font-weight: 700;">0%</span>
+            </div>
+            <div style="background: rgba(0, 0, 0, 0.5); border: 1px solid var(--neon-cyan); border-radius: 4px; height: 24px; overflow: hidden;">
+                <div id="progress-bar" style="background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta)); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center;">
+                    <span id="progress-text" style="font-size: 0.75rem; color: white; font-weight: 700; text-shadow: 0 0 2px black;"></span>
+                </div>
+            </div>
+        </div>
+
         <div id="backtest-status" class="card-subtitle mt-4" style="min-height: 2rem;"></div>
     </div>
 
@@ -118,89 +138,240 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="/static/js/ui-helpers.js"></script>
 <script>
-// Set default dates (30 days ago to today)
+// ============ INITIALIZATION ============
+
+let currentBacktestId = null;
+let statusPollInterval = null;
+
 document.addEventListener('DOMContentLoaded', () => {
+    // Set default dates (30 days ago to today)
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
-    
+
     document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
     document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
 });
 
+// ============ START BACKTEST ============
+
 async function startBacktest() {
-    const statusEl = document.getElementById('backtest-status');
-    const resultsEl = document.getElementById('backtest-results');
-    
-    statusEl.textContent = 'Backtest wird gestartet...';
-    resultsEl.textContent = 'Backtest läuft...';
-    
     const startDate = document.getElementById('start-date').value;
     const endDate = document.getElementById('end-date').value;
     const initialEquity = parseFloat(document.getElementById('initial-equity').value);
-    
+
     if (!startDate || !endDate) {
-        statusEl.textContent = '❌ Bitte Start- und End-Datum angeben';
+        showError('Validierungsfehler', 'Bitte Start- und End-Datum angeben');
         return;
     }
-    
-    try {
-        const response = await fetch('/api/backtesting/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                start_date: startDate,
-                end_date: endDate,
-                initial_equity: initialEquity
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            statusEl.textContent = '✅ Backtest erfolgreich abgeschlossen';
-            displayResults(data.results || data);
-        } else {
-            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Backtest konnte nicht gestartet werden');
-            resultsEl.textContent = 'Fehler beim Backtest';
-        }
-    } catch (error) {
-        statusEl.textContent = '❌ Fehler: ' + error.message;
-        resultsEl.textContent = 'Fehler beim Backtest: ' + error.message;
+
+    if (isNaN(initialEquity) || initialEquity < 1000) {
+        showError('Validierungsfehler', 'Initial Equity muss mindestens $1000 sein');
+        return;
+    }
+
+    // Start backtest via apiCall helper (shows spinner + error handling)
+    const result = await apiCall('POST', '/api/backtesting/run', {
+        start_date: startDate,
+        end_date: endDate,
+        initial_equity: initialEquity
+    });
+
+    if (result && result.backtest_id) {
+        currentBacktestId = result.backtest_id;
+
+        // Show progress bar
+        document.getElementById('progress-container').style.display = 'block';
+        document.getElementById('backtest-status').textContent = `✓ Backtest gestartet (ID: ${currentBacktestId})`;
+        document.getElementById('backtest-results').textContent = 'Backtest läuft... bitte warten';
+
+        // Show/hide buttons
+        document.getElementById('backtest-start-btn').classList.add('hidden');
+        document.getElementById('backtest-cancel-btn').classList.remove('hidden');
+
+        // Start polling for status (every 2 seconds)
+        if (statusPollInterval) clearInterval(statusPollInterval);
+        statusPollInterval = setInterval(() => pollBacktestStatus(currentBacktestId), 2000);
+
+        // Initial poll
+        pollBacktestStatus(currentBacktestId);
     }
 }
 
+// ============ POLL BACKTEST STATUS ============
+
+async function pollBacktestStatus(backtestId) {
+    try {
+        const response = await fetch(`/api/backtesting/status/${backtestId}`);
+
+        if (!response.ok) {
+            showError('API Fehler', `Status Code: ${response.status}`);
+            stopPolling();
+            return;
+        }
+
+        const status = await response.json();
+        const statusEl = document.getElementById('backtest-status');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressText = document.getElementById('progress-text');
+
+        const progress = status.progress || 0;
+
+        // Update progress bar
+        progressBar.style.width = progress + '%';
+        progressPercent.textContent = progress + '%';
+        progressText.textContent = progress > 20 ? progress + '%' : '';
+
+        if (status.status === 'running') {
+            statusEl.textContent = `🔄 Backtest läuft... (${progress}%)`;
+        } else if (status.status === 'completed') {
+            statusEl.textContent = '✅ Backtest abgeschlossen';
+            progressBar.style.width = '100%';
+            progressPercent.textContent = '100%';
+
+            stopPolling();
+
+            // Hide buttons
+            document.getElementById('backtest-cancel-btn').classList.add('hidden');
+            document.getElementById('backtest-start-btn').classList.remove('hidden');
+
+            // Fetch results
+            await fetchBacktestResults(backtestId);
+        } else if (status.status === 'error') {
+            statusEl.textContent = '❌ Backtest Fehler';
+            showError('Backtest Fehler', status.error || 'Unbekannter Fehler');
+
+            stopPolling();
+
+            // Hide buttons
+            document.getElementById('backtest-cancel-btn').classList.add('hidden');
+            document.getElementById('backtest-start-btn').classList.remove('hidden');
+        } else if (status.status === 'cancelled') {
+            statusEl.textContent = '⏹️ Backtest abgebrochen';
+
+            stopPolling();
+
+            // Hide buttons
+            document.getElementById('backtest-cancel-btn').classList.add('hidden');
+            document.getElementById('backtest-start-btn').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Error polling backtest status:', error);
+        showError('Polling Fehler', error.message);
+        stopPolling();
+    }
+}
+
+// ============ CANCEL BACKTEST ============
+
+async function cancelBacktest() {
+    if (!currentBacktestId) return;
+
+    if (!confirm('Backtest wirklich abbrechen?')) return;
+
+    const result = await apiCall('DELETE', `/api/backtesting/cancel/${currentBacktestId}`);
+
+    if (result) {
+        document.getElementById('backtest-status').textContent = '⏹️ Backtest abgebrochen';
+        stopPolling();
+
+        document.getElementById('backtest-cancel-btn').classList.add('hidden');
+        document.getElementById('backtest-start-btn').classList.remove('hidden');
+    }
+}
+
+// ============ FETCH BACKTEST RESULTS ============
+
+async function fetchBacktestResults(backtestId) {
+    try {
+        const response = await fetch(`/api/backtesting/results/${backtestId}`);
+
+        if (!response.ok) {
+            showError('Ergebnisse laden', `Status Code: ${response.status}`);
+            return;
+        }
+
+        const results = await response.json();
+
+        if (results.success === false) {
+            showError('Ergebnisse laden', results.error || 'Fehler beim Abrufen der Ergebnisse');
+            return;
+        }
+
+        // Display results
+        displayResults(results);
+    } catch (error) {
+        console.error('Error fetching backtest results:', error);
+        showError('Netzwerkfehler', error.message);
+    }
+}
+
+// ============ DISPLAY RESULTS ============
+
 function displayResults(results) {
-    // Update metrics
-    if (results.total_return !== undefined) {
-        document.getElementById('total-return').textContent = 
-            (results.total_return >= 0 ? '+' : '') + (results.total_return * 100).toFixed(2) + '%';
-    }
-    if (results.win_rate !== undefined) {
-        document.getElementById('win-rate').textContent = (results.win_rate * 100).toFixed(2) + '%';
-    }
-    if (results.max_drawdown !== undefined) {
-        document.getElementById('max-drawdown').textContent = 
-            (results.max_drawdown * 100).toFixed(2) + '%';
-    }
-    if (results.sharpe_ratio !== undefined) {
-        document.getElementById('sharpe-ratio').textContent = results.sharpe_ratio.toFixed(2);
-    }
-    
-    // Update results text
+    // Backend returns camelCase keys (confirmed in routes_backtesting.py:364-378)
+    // Use them directly without defensive fallbacks
+
+    const totalReturn = results.totalReturn || 0;
+    const winRatePct = results.winRatePct || 0;
+    const maxDrawdown = results.maxDrawdown || 0;
+    const sharpeRatio = results.sharpeRatio || 0;
+
+    // Update metric cards
+    document.getElementById('total-return').textContent =
+        (totalReturn >= 0 ? '+' : '') + totalReturn.toFixed(2) + '%';
+
+    document.getElementById('win-rate').textContent = winRatePct.toFixed(2) + '%';
+
+    document.getElementById('max-drawdown').textContent =
+        (maxDrawdown >= 0 ? '+' : '') + maxDrawdown.toFixed(2) + '%';
+
+    document.getElementById('sharpe-ratio').textContent = sharpeRatio.toFixed(2);
+
+    // Update results details section
     const resultsEl = document.getElementById('backtest-results');
+
+    const totalTrades = results.totalTrades || 0;
+    const totalPnL = results.totalPnL || 0;
+    const profitFactor = results.profitFactor || 0;
+    const expectancy = results.expectancy || 0;
+    const tradesPerDay = results.tradesPerDay || 0;
+
     resultsEl.innerHTML = `
         <div style="line-height: 1.8;">
-            <div><strong>Total Trades:</strong> ${results.total_trades || 0}</div>
-            <div><strong>Winning Trades:</strong> ${results.winning_trades || 0}</div>
-            <div><strong>Losing Trades:</strong> ${results.losing_trades || 0}</div>
-            <div><strong>Total PnL:</strong> $${(results.total_pnl || 0).toFixed(2)}</div>
-            <div><strong>Average Win:</strong> $${(results.avg_win || 0).toFixed(2)}</div>
-            <div><strong>Average Loss:</strong> $${(results.avg_loss || 0).toFixed(2)}</div>
-            <div><strong>Profit Factor:</strong> ${(results.profit_factor || 0).toFixed(2)}</div>
+            <div><strong>Total Trades:</strong> ${totalTrades}</div>
+            <div><strong>Total PnL:</strong> $${totalPnL.toFixed(2)}</div>
+            <div><strong>Trades per Day:</strong> ${tradesPerDay.toFixed(2)}</div>
+            <div><strong>Profit Factor:</strong> ${profitFactor.toFixed(3)}</div>
+            <div><strong>Expectancy:</strong> $${expectancy.toFixed(2)}</div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0, 255, 255, 0.3);">
+                <div><strong>Risk Metrics:</strong></div>
+                <div style="margin-left: 1rem; margin-top: 0.5rem;">
+                    <div><strong>Max Drawdown:</strong> ${maxDrawdown.toFixed(2)}%</div>
+                    <div><strong>Sharpe Ratio:</strong> ${sharpeRatio.toFixed(3)}</div>
+                    <div><strong>Tail Loss (95%):</strong> $${(results.tailLoss95 || 0).toFixed(2)}</div>
+                    <div><strong>Tail Loss (99%):</strong> $${(results.tailLoss99 || 0).toFixed(2)}</div>
+                </div>
+            </div>
         </div>
     `;
+
+    showSuccess('Backtest abgeschlossen', 'Ergebnisse erfolgreich geladen');
+}
+
+// ============ HELPER FUNCTIONS ============
+
+function stopPolling() {
+    if (statusPollInterval) {
+        clearInterval(statusPollInterval);
+        statusPollInterval = null;
+    }
+
+    document.getElementById('progress-container').style.display = 'none';
 }
 </script>
 {% endblock %}

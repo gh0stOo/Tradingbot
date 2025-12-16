@@ -11,6 +11,10 @@ services:
     volumes:
       # Mount entire project for development
       - .:/app
+      # Use dedicated volume for database to avoid host filesystem locking issues
+      - tradingbot-data:/app/data
+      # Keep sample backtest data available inside the container
+      - ./data/sample_backtest.csv:/app/data/sample_backtest.csv:ro
       # Exclude some directories
       - /app/__pycache__
       - /app/.git
@@ -44,6 +48,9 @@ services:
     volumes:
       # Mount entire project for development
       - .:/app
+      # Shared data volume for SQLite DB
+      - tradingbot-data:/app/data
+      - ./data/sample_backtest.csv:/app/data/sample_backtest.csv:ro
       # Exclude some directories
       - /app/__pycache__
       - /app/.git
@@ -53,7 +60,7 @@ services:
       - TRADING_DB_PATH=/app/data/trading.db
       - TRADING_MODE=PAPER
       - LOG_LEVEL=INFO
-    restart: on-failure:5  # Restart max 5 times on failure
+    restart: on-failure  # Restart on failure
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
       interval: 60s
@@ -76,4 +83,7 @@ networks:
   trading-bot-network:
     driver: bridge
     name: trading-bot-network
+
+volumes:
+  tradingbot-data:
 

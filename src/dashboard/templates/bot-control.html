@@ -302,7 +302,7 @@
         async function startBot() {
             try {
                 showNotification('Starten...', 'info');
-                const data = await safeFetch('/api/v1/bot/start', 'POST');
+                const data = await safeFetch('/api/bot/start', 'POST');
                 if (data.success) {
                     showNotification('✓ Bot wurde gestartet!', 'success');
                     setTimeout(loadBotStatus, 500);
@@ -320,7 +320,7 @@
             if (!confirm('Bot wirklich stoppen?')) return;
             try {
                 showNotification('Stoppt...', 'info');
-                const data = await safeFetch('/api/v1/bot/stop', 'POST');
+                const data = await safeFetch('/api/bot/stop', 'POST');
                 if (data.success) {
                     showNotification('✓ Bot wurde gestoppt!', 'success');
                     setTimeout(loadBotStatus, 500);
@@ -337,7 +337,7 @@
         async function pauseBot() {
             try {
                 showNotification('Pausiert...', 'info');
-                const data = await safeFetch('/api/v1/bot/pause', 'POST');
+                const data = await safeFetch('/api/bot/pause', 'POST');
                 if (data.success) {
                     showNotification('✓ Bot wurde pausiert!', 'success');
                     setTimeout(loadBotStatus, 500);
@@ -354,7 +354,7 @@
         async function resumeBot() {
             try {
                 showNotification('Fortsetzung...', 'info');
-                const data = await safeFetch('/api/v1/bot/resume', 'POST');
+                const data = await safeFetch('/api/bot/resume', 'POST');
                 if (data.success) {
                     showNotification('✓ Bot wurde fortgesetzt!', 'success');
                     setTimeout(loadBotStatus, 500);
@@ -372,7 +372,7 @@
             if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
             try {
                 showNotification('⚠️ Emergency Stop läuft...', 'warning');
-                const data = await safeFetch('/api/v1/bot/emergency-stop', 'POST');
+                const data = await safeFetch('/api/bot/emergency-stop', 'POST');
                 if (data.success) {
                     showNotification('🚨 Emergency Stop ausgeführt!', 'success');
                     setTimeout(loadBotStatus, 500);

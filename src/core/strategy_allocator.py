@@ -78,21 +78,34 @@ class StrategyAllocator:
         
         order_intents: List[OrderIntentEvent] = []
         
+        # Get max positions from config
+        risk_config = self.config.get("risk", {})
+        max_positions = risk_config.get("maxPositions", 3)  # Default 3
+        
         for symbol, symbol_signals in signals_by_symbol.items():
             # Check if we already have a position in this asset
             existing_position = self.trading_state.get_position(symbol)
             if existing_position:
-                logger.debug(f"Skipping {symbol}: position already exists")
+                logger.debug(f"[Allocator] Skipping {symbol}: position already exists")
                 continue
+            
+            # Check max positions limit (before processing signals)
+            current_positions_count = len(self.trading_state.get_open_positions())
+            if current_positions_count >= max_positions:
+                logger.debug(f"[Allocator] Max positions reached ({current_positions_count}/{max_positions}), skipping remaining signals")
+                break  # Stop processing more symbols if max positions reached
             
             # Select best signal for this symbol (priority-based)
             best_signal = self._select_best_signal(symbol_signals)
             if not best_signal:
+                logger.debug(f"[Allocator] No best signal selected for {symbol} from {len(symbol_signals)} signals")
                 continue
+            
+            logger.debug(f"[Allocator] Selected best signal for {symbol}: {best_signal.strategy_name} (confidence: {best_signal.confidence:.2f})")
             
             # Check strategy limits
             if not self._check_strategy_limits(best_signal.strategy_name):
-                logger.debug(f"Skipping signal from {best_signal.strategy_name}: daily limit reached")
+                logger.debug(f"[Allocator] Skipping signal from {best_signal.strategy_name}: daily limit reached")
                 continue
             
             # Convert signal to order intent
@@ -101,14 +114,16 @@ class StrategyAllocator:
                 # Double-check max positions (prevent race condition)
                 current_positions_check = len(self.trading_state.get_open_positions())
                 if current_positions_check >= max_positions:
-                    logger.debug(f"Skipping {symbol}: max positions reached during processing")
+                    logger.debug(f"[Allocator] Skipping {symbol}: max positions reached during processing")
                     continue
                 
+                logger.debug(f"[Allocator] Created order intent for {symbol}: {order_intent.side} {order_intent.quantity} @ {order_intent.entry_price}")
                 order_intents.append(order_intent)
-                current_position_count += 1  # Increment local counter
                 # Increment strategy counter
                 self._trades_per_strategy_today[best_signal.strategy_name] = \
                     self._trades_per_strategy_today.get(best_signal.strategy_name, 0) + 1
+            else:
+                logger.debug(f"[Allocator] Failed to create order intent for {symbol} from {best_signal.strategy_name}")
         
         return order_intents
     

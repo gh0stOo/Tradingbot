@@ -204,6 +204,16 @@ async def backtesting_page(request: Request):
     """Backtesting page"""
     return templates.TemplateResponse("backtesting_new.html", {"request": request})
 
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Settings management page"""
+    return templates.TemplateResponse("settings_new.html", {"request": request})
+
+@router.get("/events", response_class=HTMLResponse)
+async def events_page(request: Request):
+    """Operations events monitoring page"""
+    return templates.TemplateResponse("events_new.html", {"request": request})
+
 @router.get("/live-trading", response_class=HTMLResponse)
 async def live_trading_page():
     """Live Trading page"""
@@ -262,15 +272,19 @@ async def get_active_positions() -> Dict[str, Any]:
 async def close_position(position_id: int) -> Dict[str, Any]:
     """Close a position manually"""
     try:
-        # TODO: Actually close the position
-        # This would need to integrate with PositionManager or OrderManager
-        
-        logger.info(f"Position {position_id} close requested via API")
-        
-        return {
-            "success": True,
-            "message": f"Position {position_id} wurde geschlossen"
-        }
+        # NOTE: Manual position closure via API not yet implemented
+        # Would require integration with PositionManager/OrderManager
+
+        logger.warning(f"Position {position_id} close requested via API - NOT IMPLEMENTED")
+
+        return JSONResponse(
+            status_code=501,
+            content={
+                "success": False,
+                "error": "Manual position closure via API not yet implemented",
+                "message": "Use trading bot controls instead"
+            }
+        )
     except Exception as e:
         logger.error(f"Error closing position {position_id}: {e}", exc_info=True)
         return JSONResponse(
@@ -282,11 +296,21 @@ async def close_position(position_id: int) -> Dict[str, Any]:
 async def get_recent_signals(limit: int = 50) -> Dict[str, Any]:
     """Get recent trading signals"""
     try:
-        # TODO: Fetch from database or signal log
-        # For now, return empty list
+        # NOTE: Fetch signals from database
+        # Requires integration with signal logging system
+        signals = []
+
+        try:
+            # Attempt to get signals from database if available
+            # This would require access to the signal event log
+            # For now, return empty until proper logging is implemented
+            pass
+        except Exception as e:
+            logger.warning(f"Could not fetch signals from database: {e}")
+
         return {
-            "signals": [],
-            "count": 0
+            "signals": signals,
+            "count": len(signals)
         }
     except Exception as e:
         logger.error(f"Error fetching signals: {e}", exc_info=True)

@@ -4,7 +4,7 @@
 {% block page_title %}Bot Control{% endblock %}
 
 {% block content %}
-<!-- Bot Status Card -->
+<!-- Bot Status Card - IMPROVED -->
 <div class="card card-neon-cyan mb-6">
     <div class="card-header">
         <h2 class="text-lg font-bold">Bot Status</h2>
@@ -13,47 +13,71 @@
             <span id="bot-status-text" class="status-text">Gestoppt</span>
         </div>
     </div>
+
+    <!-- Status Grid -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+        <!-- Desired State -->
         <div>
-            <div class="card-title-small">Trading Mode</div>
-            <div id="trading-mode" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">PAPER</div>
+            <div class="card-title-small">Desired State (Wunsch)</div>
+            <div id="desired-state" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-magenta);">--</div>
         </div>
+
+        <!-- Actual State -->
         <div>
-            <div class="card-title-small">Uptime</div>
-            <div id="uptime" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">--</div>
+            <div class="card-title-small">Actual State (Aktuell)</div>
+            <div id="actual-state" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">--</div>
         </div>
+
+        <!-- Heartbeat -->
         <div>
-            <div class="card-title-small">Letzte Ausführung</div>
-            <div id="last-execution" style="font-size: 1.25rem; font-weight: 700; color: var(--neon-cyan);">--</div>
+            <div class="card-title-small">Heartbeat Freshness</div>
+            <div id="heartbeat-stale-warning" style="font-size: 1rem; font-weight: 700;">⊘ Loading...</div>
+        </div>
+
+        <!-- Last Error -->
+        <div>
+            <div class="card-title-small">Last Error</div>
+            <div id="last-error" style="font-size: 0.9rem; color: var(--neon-red); word-break: break-all;">--</div>
         </div>
     </div>
 </div>
 
-<!-- Control Buttons -->
+<!-- Control Buttons - IMPROVED with async -->
 <div class="card card-neon-cyan mb-6">
     <h2 class="text-lg font-bold mb-6">Bot Steuerung</h2>
     <div style="display: flex; flex-direction: column; gap: 1rem;">
-        <button id="bot-start-btn" onclick="startBot()" class="btn btn-success btn-lg">
+        <button id="bot-start-btn" onclick="startBotAsync()" class="btn btn-success btn-lg">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Bot Starten
         </button>
-        <button id="bot-stop-btn" onclick="stopBot()" class="btn btn-primary btn-lg hidden">
+
+        <button id="bot-stop-btn" onclick="stopBotAsync()" class="btn btn-primary btn-lg hidden">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z" />
             </svg>
             Bot Stoppen
         </button>
-        <button id="bot-pause-btn" onclick="pauseBot()" class="btn btn-primary btn-lg hidden">
+
+        <button id="bot-pause-btn" onclick="pauseBotAsync()" class="btn btn-warning btn-lg hidden">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Bot Pausieren
         </button>
-        <button onclick="emergencyStop()" class="btn btn-danger btn-lg">
+
+        <button id="bot-resume-btn" onclick="resumeBotAsync()" class="btn btn-success btn-lg hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Bot Fortsetzen
+        </button>
+
+        <button onclick="emergencyStopAsync()" class="btn btn-danger btn-lg">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
@@ -84,113 +108,153 @@
             <label class="form-label">Risk Level</label>
             <span id="risk-level-value" class="slider-value">5/10</span>
         </div>
-        <input type="range" id="risk-slider" min="1" max="10" value="5" step="1" 
-               class="form-input" style="width: 100%;" 
+        <input type="range" id="risk-slider" min="1" max="10" value="5" step="1"
+               class="form-input" style="width: 100%;"
                oninput="document.getElementById('risk-level-value').textContent = this.value + '/10'">
     </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="/static/js/ui-helpers.js"></script>
 <script>
-// Load bot status
+// ============ STATE MANAGEMENT ============
+let statusPollInterval = null;
+
+// ============ LOAD BOT STATUS ============
 async function loadBotStatus() {
     try {
-        const response = await fetch('/api/bot/status');
+        const response = await fetch('/api/v1/status');
+        if (!response.ok) {
+            console.error('Status fetch failed:', response.status);
+            return;
+        }
+
         const data = await response.json();
-        
+
+        // Update state displays
+        const desiredElement = document.getElementById('desired-state');
+        const actualElement = document.getElementById('actual-state');
         const dot = document.getElementById('status-dot-inner');
         const text = document.getElementById('bot-status-text');
-        const mode = document.getElementById('trading-mode');
-        const uptime = document.getElementById('uptime');
-        const lastExec = document.getElementById('last-execution');
-        
-        if (data.status === 'running') {
+
+        const desired = data.desired_state || 'unknown';
+        const actual = data.actual_state || 'unknown';
+
+        // Update display
+        if (desiredElement) desiredElement.textContent = desired.toUpperCase();
+        if (actualElement) actualElement.textContent = actual.toUpperCase();
+
+        // Update status indicator based on actual state
+        if (actual === 'running') {
             dot.className = 'status-dot running';
             text.textContent = 'Läuft';
-            document.getElementById('bot-start-btn').classList.add('hidden');
-            document.getElementById('bot-stop-btn').classList.remove('hidden');
-            document.getElementById('bot-pause-btn').classList.remove('hidden');
-        } else if (data.status === 'paused') {
-            dot.className = 'status-dot stopped';
+        } else if (actual === 'paused') {
+            dot.className = 'status-dot paused';
             text.textContent = 'Pausiert';
-            document.getElementById('bot-start-btn').classList.add('hidden');
-            document.getElementById('bot-stop-btn').classList.remove('hidden');
-            document.getElementById('bot-pause-btn').classList.remove('hidden');
         } else {
             dot.className = 'status-dot stopped';
             text.textContent = 'Gestoppt';
-            document.getElementById('bot-start-btn').classList.remove('hidden');
-            document.getElementById('bot-stop-btn').classList.add('hidden');
-            document.getElementById('bot-pause-btn').classList.add('hidden');
         }
-        
-        if (mode) mode.textContent = data.mode || 'PAPER';
-        if (uptime) uptime.textContent = data.uptime || '--';
-        if (lastExec) lastExec.textContent = data.lastExecution ? new Date(data.lastExecution).toLocaleString() : '--';
+
+        // Update button visibility based on actual state
+        const startBtn = document.getElementById('bot-start-btn');
+        const stopBtn = document.getElementById('bot-stop-btn');
+        const pauseBtn = document.getElementById('bot-pause-btn');
+        const resumeBtn = document.getElementById('bot-resume-btn');
+
+        // Hide all buttons first
+        startBtn?.classList.add('hidden');
+        stopBtn?.classList.add('hidden');
+        pauseBtn?.classList.add('hidden');
+        resumeBtn?.classList.add('hidden');
+
+        // Show appropriate buttons
+        if (actual === 'running') {
+            stopBtn?.classList.remove('hidden');
+            pauseBtn?.classList.remove('hidden');
+        } else if (actual === 'paused') {
+            stopBtn?.classList.remove('hidden');
+            resumeBtn?.classList.remove('hidden');
+        } else {
+            startBtn?.classList.remove('hidden');
+        }
+
+        // Update heartbeat freshness
+        if (data.last_heartbeat) {
+            updateStaleStatus(data.last_heartbeat);
+        }
+
+        // Update last error
+        const errorElement = document.getElementById('last-error');
+        if (errorElement) {
+            errorElement.textContent = data.last_error || '--';
+        }
+
     } catch (error) {
         console.error('Error loading bot status:', error);
     }
 }
 
-async function startBot() {
-    try {
-        const response = await fetch('/api/bot/start', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            loadBotStatus();
-        } else {
-            alert('Fehler: ' + (data.error || 'Bot konnte nicht gestartet werden'));
-        }
-    } catch (error) {
-        alert('Fehler beim Starten des Bots: ' + error.message);
+// ============ BOT CONTROL FUNCTIONS ============
+
+async function startBotAsync() {
+    const result = await apiCall('POST', '/api/bot/start');
+    if (result) {
+        // Immediate UI feedback
+        loadBotStatus();
+        // Poll again after 1 second to ensure worker has processed
+        setTimeout(loadBotStatus, 1000);
     }
 }
 
-async function stopBot() {
+async function stopBotAsync() {
     if (!confirm('Bot wirklich stoppen?')) return;
-    try {
-        const response = await fetch('/api/bot/stop', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            loadBotStatus();
-        }
-    } catch (error) {
-        alert('Fehler beim Stoppen des Bots: ' + error.message);
+    const result = await apiCall('POST', '/api/bot/stop');
+    if (result) {
+        loadBotStatus();
+        setTimeout(loadBotStatus, 1000);
     }
 }
 
-async function pauseBot() {
-    try {
-        const response = await fetch('/api/bot/pause', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            loadBotStatus();
-        }
-    } catch (error) {
-        alert('Fehler beim Pausieren des Bots: ' + error.message);
+async function pauseBotAsync() {
+    const result = await apiCall('POST', '/api/bot/pause');
+    if (result) {
+        loadBotStatus();
+        setTimeout(loadBotStatus, 1000);
     }
 }
 
-async function emergencyStop() {
+async function resumeBotAsync() {
+    const result = await apiCall('POST', '/api/bot/resume');
+    if (result) {
+        loadBotStatus();
+        setTimeout(loadBotStatus, 1000);
+    }
+}
+
+async function emergencyStopAsync() {
     if (!confirm('⚠️ WARNUNG: Emergency Stop wird alle Positionen sofort schließen!\n\nWirklich fortfahren?')) return;
-    try {
-        const response = await fetch('/api/bot/emergency-stop', { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            alert('Emergency Stop ausgeführt!');
-            loadBotStatus();
-        }
-    } catch (error) {
-        alert('Fehler beim Emergency Stop: ' + error.message);
+    const result = await apiCall('POST', '/api/bot/emergency-stop');
+    if (result) {
+        loadBotStatus();
+        setTimeout(loadBotStatus, 1000);
     }
 }
 
-// Load status on page load and refresh every 2 seconds
+// ============ INITIALIZATION ============
+
 document.addEventListener('DOMContentLoaded', () => {
+    // Load status immediately
     loadBotStatus();
-    setInterval(loadBotStatus, 2000);
+
+    // Poll status every 1-2 seconds
+    statusPollInterval = setInterval(loadBotStatus, 1500);
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    if (statusPollInterval) clearInterval(statusPollInterval);
 });
 </script>
 {% endblock %}
-

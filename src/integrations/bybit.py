@@ -8,7 +8,13 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from utils.exceptions import BybitAPIError, APIError, RateLimitError
+from utils.exceptions import (
+    BybitAPIError,
+    APIError,
+    RateLimitError,
+    NetworkError,
+    InsufficientBalanceError,
+)
 from utils.retry import retry_with_backoff
 from .rate_limiter import RateLimiter, RateLimitConfig
 
@@ -77,6 +83,37 @@ class BybitClient:
                     self.last_request_time = time.time()
             
             self.rate_limit_counter += 1
+
+    def _map_bybit_error(
+        self,
+        ret_code: int,
+        ret_msg: str,
+        status_code: int,
+        response_data: Optional[Dict[str, Any]] = None,
+        retry_after: Optional[int] = None
+    ) -> APIError:
+        """
+        Map Bybit retCode to specific exceptions for clearer handling.
+        """
+        # Rate limit codes (per Bybit docs)
+        if ret_code in (10006, 10007, 110100):
+            return RateLimitError(ret_msg or "Rate limit exceeded", retry_after=retry_after)
+
+        # Network/timeout style errors
+        if ret_code in (10001, 10002, 10016):
+            return NetworkError(ret_msg or "Network error", status_code=status_code, response_data=response_data)
+
+        # Balance / margin issues
+        if ret_code in (110001, 110003, 110004) or ("insufficient" in (ret_msg or "").lower()):
+            return InsufficientBalanceError(ret_msg or "Insufficient balance", status_code=status_code, response_data=response_data)
+
+        # Fallback to generic BybitAPIError
+        return BybitAPIError(
+            ret_msg or "Bybit API error",
+            status_code=status_code,
+            error_code=str(ret_code),
+            response_data=response_data
+        )
     
     @retry_with_backoff(max_retries=3, initial_delay=1.0, max_delay=30.0)
     def _public_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
@@ -100,11 +137,12 @@ class BybitClient:
             if result.get("retCode") != 0:
                 error_msg = result.get("retMsg", "Unknown error")
                 error_code = result.get("retCode")
-                raise BybitAPIError(
-                    f"Bybit API error: {error_msg}",
+                raise self._map_bybit_error(
+                    ret_code=error_code,
+                    ret_msg=error_msg,
                     status_code=response.status_code,
-                    error_code=str(error_code),
-                    response_data=result
+                    response_data=result,
+                    retry_after=int(response.headers.get("Retry-After", 0)) if response.headers else None
                 )
             
             return result
@@ -173,11 +211,12 @@ class BybitClient:
             if result.get("retCode") != 0:
                 error_msg = result.get("retMsg", "Unknown error")
                 error_code = result.get("retCode")
-                raise BybitAPIError(
-                    f"Bybit API error: {error_msg}",
+                raise self._map_bybit_error(
+                    ret_code=error_code,
+                    ret_msg=error_msg,
                     status_code=response.status_code,
-                    error_code=str(error_code),
-                    response_data=result
+                    response_data=result,
+                    retry_after=int(response.headers.get("Retry-After", 0)) if response.headers else None
                 )
             
             return result
@@ -256,6 +295,15 @@ class BybitClient:
         params = {"accountType": account_type}
         response = self._authenticated_request("GET", endpoint, params=params)
         return response.get("result", {})
+    
+    def get_positions(self, category: str = "linear", symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get current positions (requires authentication)"""
+        endpoint = "/v5/position/list"
+        params: Dict[str, Any] = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        response = self._authenticated_request("GET", endpoint, params=params)
+        return response.get("result", {}).get("list", [])
     
     def create_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create order (requires authentication)"""

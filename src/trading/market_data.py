@@ -1,7 +1,10 @@
 """Market Data Module - Bybit API Client"""
 
+import logging
 from typing import Dict, List, Optional, Any
 from integrations.bybit import BybitClient
+
+logger = logging.getLogger(__name__)
 
 class MarketData:
     """Market Data handler for trading bot"""

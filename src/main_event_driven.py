@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
-from typing import Optional
+from typing import Optional, Dict
+from datetime import datetime
 from integrations.bybit import BybitClient
 from integrations.bybit_websocket import BybitWebSocketClient
 from trading.market_data import MarketData
@@ -254,8 +255,61 @@ def main():
     last_position_check = datetime.utcnow()
     last_reconcile_time = datetime.utcnow()
     
+    # Last heartbeat time for periodic updates
+    last_heartbeat_time = datetime.utcnow()
+
     try:
         while True:
+            # Update heartbeat every second (worker is alive)
+            current_time = datetime.utcnow()
+            if (current_time - last_heartbeat_time).total_seconds() >= 1.0:
+                try:
+                    db.update_bot_heartbeat()
+                    last_heartbeat_time = current_time
+                except Exception as e:
+                    logger.error(f"Error updating heartbeat: {e}")
+
+            # Read desired state from database (Docker-compatible control)
+            try:
+                bot_control = db.get_bot_control()
+                if not bot_control:
+                    logger.warning("bot_control record not found in database")
+                    time.sleep(1)
+                    continue
+
+                desired_state = bot_control.get('desired_state', 'stopped')
+
+                # Map desired_state to BotStatus for consistency
+                if desired_state == 'stopped':
+                    current_status = BotStatus.STOPPED
+                elif desired_state == 'running':
+                    current_status = BotStatus.RUNNING
+                elif desired_state == 'paused':
+                    current_status = BotStatus.PAUSED
+                else:
+                    logger.warning(f"Unknown desired_state: {desired_state}")
+                    current_status = BotStatus.STOPPED
+
+                # Update actual_state in database
+                db.update_bot_actual_state(desired_state)
+
+            except Exception as e:
+                logger.error(f"Error reading bot control state from database: {e}", exc_info=True)
+                db.update_bot_actual_state('error', str(e))
+                time.sleep(1)
+                continue
+
+            # If stopped, enter idle loop (do NOT exit)
+            if current_status == BotStatus.STOPPED:
+                logger.debug("Bot in STOPPED state, idle loop")
+                time.sleep(1)
+                continue
+
+            if current_status == BotStatus.ERROR:
+                logger.error("Bot in error state")
+                time.sleep(1)
+                continue
+
             # Check if new day (UTC) - reset daily stats
             current_date = datetime.utcnow().date()
             if current_date != last_reset_date:
@@ -264,20 +318,7 @@ def main():
                 risk_engine._reset_daily_counters_if_needed()
                 strategy_allocator._reset_daily_counters_if_needed()
                 last_reset_date = current_date
-            
-            # Check bot state
-            current_status = bot_state_manager.get_status()
-            
-            if current_status == BotStatus.STOPPED:
-                logger.info("Bot stopped via BotStateManager")
-                time.sleep(5)
-                continue
-            
-            if current_status == BotStatus.ERROR:
-                logger.error("Bot in error state")
-                time.sleep(5)
-                continue
-            
+
             # Enable/disable trading based on state
             if current_status == BotStatus.RUNNING:
                 if not trading_state.trading_enabled:

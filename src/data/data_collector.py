@@ -58,6 +58,10 @@ class DataCollector:
             Trade ID or None if failed
         """
         try:
+            if not self.db:
+                logger.error("Database connection not available")
+                return None
+                
             timestamp = timestamp or datetime.utcnow()
             strategies_json = json.dumps(strategies_used)
 
@@ -71,7 +75,11 @@ class DataCollector:
                 timestamp, symbol, side, entry_price, quantity,
                 stop_loss, take_profit, confidence, quality_score,
                 regime_type, strategies_json, trading_mode
-            ))
+            ), return_cursor=True)
+
+            if cursor is None:
+                logger.error("Database execute returned None")
+                return None
 
             trade_id = cursor.lastrowid
             self.open_trades[symbol] = trade_id
@@ -312,12 +320,17 @@ class DataCollector:
             for row in cursor.fetchall():
                 trade = dict(row)
                 # Parse strategies_used JSON if present
-                if 'strategies_used' in trade and isinstance(trade['strategies_used'], str):
-                    try:
-                        trade['strategies_used'] = json.loads(trade['strategies_used'])
-                    except (json.JSONDecodeError, ValueError) as parse_error:
-                        logger.warning(f"Failed to parse strategies_used JSON: {parse_error}")
-                        trade['strategies_used'] = []
+                strategies_raw = trade.get("strategies_used")
+                if isinstance(strategies_raw, str):
+                    strategies_raw = strategies_raw.strip()
+                    if not strategies_raw:
+                        trade["strategies_used"] = []
+                    else:
+                        try:
+                            trade["strategies_used"] = json.loads(strategies_raw)
+                        except (json.JSONDecodeError, ValueError) as parse_error:
+                            logger.debug(f"Failed to parse strategies_used JSON: {parse_error}")
+                            trade["strategies_used"] = []
                 trades.append(trade)
 
             return trades

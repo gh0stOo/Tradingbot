@@ -20,8 +20,8 @@ class Position:
     quantity: Decimal
     entry_price: Decimal
     entry_time: datetime
-    stop_loss: Decimal
-    take_profit: Decimal
+    stop_loss: Optional[Decimal] = None  # Optional stop loss
+    take_profit: Optional[Decimal] = None  # Optional take profit
     unrealized_pnl: Decimal = Decimal("0")
     position_id: Optional[str] = None  # Internal position ID
     
@@ -161,6 +161,18 @@ class TradingState:
         with self._lock:
             return self._trades_today
     
+    @trades_today.setter
+    def trades_today(self, value: int) -> None:
+        """Set number of trades today (primarily for tests)"""
+        with self._lock:
+            self._trades_today = int(value)
+    
+    @property
+    def daily_start_equity(self) -> Decimal:
+        """Get daily start equity"""
+        with self._lock:
+            return self._daily_start_equity
+    
     def get_open_positions(self) -> Dict[str, Position]:
         """Get all open positions (copy)"""
         with self._lock:
@@ -265,6 +277,56 @@ class TradingState:
             
             logger.info(f"Position removed: {symbol}, realized_pnl={realized_pnl}")
             return position
+    
+    def update_position(self, symbol: str, **updates) -> bool:
+        """
+        Update position fields (atomic).
+        
+        Args:
+            symbol: Symbol to update
+            **updates: Fields to update (quantity, entry_price, stop_loss, take_profit, etc.)
+            
+        Returns:
+            True if position was updated, False if position doesn't exist
+        """
+        with self._lock:
+            if symbol not in self._open_positions:
+                logger.warning(f"Position {symbol} not found for update")
+                return False
+            
+            position = self._open_positions[symbol]
+            
+            # Update fields
+            if "quantity" in updates:
+                new_quantity = Decimal(str(updates["quantity"]))
+                if new_quantity <= 0:
+                    logger.warning(f"Invalid quantity {new_quantity} for position {symbol}")
+                    return False
+                position.quantity = new_quantity
+                # Update exposure
+                self._update_exposure(symbol, new_quantity * position.entry_price)
+            
+            if "entry_price" in updates:
+                new_entry_price = Decimal(str(updates["entry_price"]))
+                if new_entry_price <= 0:
+                    logger.warning(f"Invalid entry_price {new_entry_price} for position {symbol}")
+                    return False
+                position.entry_price = new_entry_price
+                # Update exposure
+                self._update_exposure(symbol, position.quantity * new_entry_price)
+            
+            if "stop_loss" in updates:
+                stop_loss = updates["stop_loss"]
+                position.stop_loss = Decimal(str(stop_loss)) if stop_loss is not None else None
+            
+            if "take_profit" in updates:
+                take_profit = updates["take_profit"]
+                position.take_profit = Decimal(str(take_profit)) if take_profit is not None else None
+            
+            self._update_equity()  # Update equity after position change
+            self._notify_listeners()
+            logger.debug(f"Position updated: {symbol}")
+            return True
     
     def update_position_pnl(self, symbol: str, current_price: Decimal) -> None:
         """Update unrealized PnL for position"""

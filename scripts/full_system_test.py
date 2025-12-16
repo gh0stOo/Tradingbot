@@ -9,7 +9,9 @@ from pathlib import Path
 from datetime import datetime
 import json
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Ensure src is on path for absolute imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 from utils.logger import setup_logger
 from utils.config_loader import ConfigLoader

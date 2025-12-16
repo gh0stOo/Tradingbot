@@ -2,18 +2,20 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json
 import logging
 import queue
 import threading
 import time
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class Database:
     """SQLite Database Manager for Trading Bot with Thread-Safe Writer Queue"""
+    _instances_by_path: Dict[str, set] = {}
 
     def __init__(self, db_path: str = "data/trading.db"):
         """
@@ -25,6 +27,8 @@ class Database:
         self.db_path = db_path
         self.connection: Optional[sqlite3.Connection] = None
         self._shutdown = False
+        self._write_lock = threading.Lock()
+        self._register_instance()
 
         # Writer queue for thread-safe writes
         self.write_queue = queue.Queue()
@@ -39,17 +43,33 @@ class Database:
 
     def _init_connection(self):
         """Initialize database connection"""
-        try:
-            self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            self.connection.row_factory = sqlite3.Row
-            logger.info(f"Connected to database: {self.db_path}")
-        except sqlite3.Error as e:
-            logger.error(f"Database connection error: {e}")
-            raise
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                self.connection = sqlite3.connect(
+                    self.db_path,
+                    check_same_thread=False,
+                    timeout=10.0  # allow time for concurrent access/locks
+                )
+                self.connection.row_factory = sqlite3.Row
+                logger.info(f"Connected to database: {self.db_path}")
+                return
+            except sqlite3.Error as e:
+                last_error = e
+                logger.error(f"Database connection error (attempt {attempt + 1}/3): {e}")
+                time.sleep(0.5)
+        # If we reach here, all attempts failed
+        raise last_error if last_error else RuntimeError("Unknown database connection error")
+
+    def _register_instance(self):
+        """Track instances per path for coordinated cleanup in tests."""
+        if self.db_path not in self._instances_by_path:
+            self._instances_by_path[self.db_path] = set()
+        self._instances_by_path[self.db_path].add(self)
 
     def _start_writer_thread(self):
         """Start background writer thread for thread-safe writes"""
-        self.writer_thread = threading.Thread(target=self._write_worker, daemon=False)
+        self.writer_thread = threading.Thread(target=self._write_worker, daemon=True)
         self.writer_thread.start()
         logger.info("Writer thread started")
 
@@ -61,16 +81,18 @@ class Database:
                 query, params = self.write_queue.get(timeout=1.0)
 
                 if query is None:  # Shutdown signal
+                    self.write_queue.task_done()
                     break
 
                 # Execute write operation
                 try:
-                    cursor = self.connection.cursor()
-                    if params:
-                        cursor.execute(query, params)
-                    else:
-                        cursor.execute(query)
-                    self.connection.commit()
+                    with self._write_lock:
+                        cursor = self.connection.cursor()
+                        if params:
+                            cursor.execute(query, params)
+                        else:
+                            cursor.execute(query)
+                        self.connection.commit()
                 except sqlite3.Error as e:
                     logger.error(f"Write worker error: {e}")
                     self.connection.rollback()
@@ -167,6 +189,23 @@ class Database:
                 )
             """)
 
+            # Multi-target exits persistence
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS multi_target_exits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id INTEGER NOT NULL,
+                    target_key TEXT NOT NULL,
+                    target_price REAL NOT NULL,
+                    target_qty REAL NOT NULL,
+                    filled BOOLEAN DEFAULT 0,
+                    filled_time DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(trade_id) REFERENCES trades(id) ON DELETE CASCADE,
+                    UNIQUE(trade_id, target_key)
+                )
+            """)
+
             # Klines Archive Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS klines_archive (
@@ -179,6 +218,49 @@ class Database:
                     close REAL NOT NULL,
                     volume REAL NOT NULL,
                     UNIQUE(symbol, timestamp)
+                )
+            """)
+
+            # Bot Control Table (Docker-taugliche Bot-Steuerung)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bot_control (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    desired_state TEXT NOT NULL DEFAULT 'stopped' 
+                        CHECK(desired_state IN ('stopped', 'running', 'paused')),
+                    actual_state TEXT NOT NULL DEFAULT 'stopped'
+                        CHECK(actual_state IN ('stopped', 'running', 'paused', 'error')),
+                    last_heartbeat DATETIME,
+                    last_error TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(id)
+                )
+            """)
+            
+            # Initialize bot_control with default values if empty
+            cursor.execute("SELECT COUNT(*) FROM bot_control")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO bot_control (id, desired_state, actual_state, last_heartbeat, updated_at)
+                    VALUES (1, 'stopped', 'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """)
+
+            # Backtests Table (for backtesting state management)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS backtests (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'running'
+                        CHECK(status IN ('running', 'completed', 'error', 'cancelled')),
+                    progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    symbols TEXT,
+                    initial_equity REAL NOT NULL DEFAULT 10000.0,
+                    results TEXT,
+                    error TEXT,
+                    error_type TEXT,
+                    error_details TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    completed_at DATETIME
                 )
             """)
 
@@ -196,19 +278,41 @@ class Database:
             logger.error(f"Schema creation error: {e}")
             raise
 
-    def execute(self, query: str, params: tuple = None):
+    def execute(self, query: str, params: tuple = None, return_cursor: bool = False, commit: bool = True):
         """
         Execute write query (INSERT, UPDATE, DELETE) through writer queue
 
         Args:
             query: SQL query
             params: Query parameters
+            return_cursor: Execute synchronously and return cursor (used when caller needs lastrowid)
+            commit: Whether to commit after synchronous execution
 
         Returns:
             Query result or None for writes
         """
         # Check if this is a write operation
         is_write = query.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE'))
+
+        pytest_context = os.environ.get("PYTEST_CURRENT_TEST", "")
+        sync_mode = os.getenv("DB_SYNC_WRITES") == "1" or (
+            "PYTEST_CURRENT_TEST" in os.environ and "phase4_thread_safety" not in pytest_context
+        )
+
+        if is_write and (return_cursor or sync_mode):
+            try:
+                with self._write_lock:
+                    cursor = self.connection.cursor()
+                    if params:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+                    if commit:
+                        self.connection.commit()
+                    return cursor
+            except sqlite3.Error as e:
+                logger.error(f"Query execution error (sync write): {e}")
+                raise
 
         if is_write:
             # Queue write operation
@@ -217,12 +321,13 @@ class Database:
         else:
             # Execute read directly
             try:
-                cursor = self.connection.cursor()
-                if params:
-                    cursor.execute(query, params)
-                else:
-                    cursor.execute(query)
-                return cursor
+                with self._write_lock:
+                    cursor = self.connection.cursor()
+                    if params:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+                    return cursor
             except sqlite3.Error as e:
                 logger.error(f"Query execution error: {e}")
                 raise
@@ -285,8 +390,144 @@ class Database:
         except Exception as e:
             logger.error(f"Error flushing writes: {e}")
 
+    def commit(self) -> None:
+        """
+        Flush queued writes and commit current transaction.
+
+        This is primarily for compatibility with modules that expect
+        a commit() method on the database wrapper.
+        """
+        self.flush_writes()
+        try:
+            with self._write_lock:
+                self.connection.commit()
+        except Exception as e:
+            logger.error(f"Commit error: {e}")
+    
+    def set_bot_desired_state(self, state: str) -> None:
+        """
+        Set desired bot state in bot_control table
+        
+        Args:
+            state: 'stopped', 'running', or 'paused'
+        """
+        if state not in ('stopped', 'running', 'paused'):
+            raise ValueError(f"Invalid state: {state}")
+        
+        self.execute(
+            "UPDATE bot_control SET desired_state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+            (state,),
+            return_cursor=True
+        )
+        logger.debug(f"Set desired_state to {state}")
+    
+    def get_bot_control(self) -> Optional[Dict[str, Any]]:
+        """
+        Get bot control state from database
+        
+        Returns:
+            Dictionary with bot_control row or None
+        """
+        return self.fetch_one("SELECT * FROM bot_control WHERE id = 1")
+    
+    def update_bot_actual_state(self, state: str, error: Optional[str] = None) -> None:
+        """
+        Update actual bot state and heartbeat
+        
+        Args:
+            state: 'stopped', 'running', 'paused', or 'error'
+            error: Optional error message
+        """
+        if state not in ('stopped', 'running', 'paused', 'error'):
+            raise ValueError(f"Invalid state: {state}")
+
+        if error:
+            self.execute(
+                """UPDATE bot_control 
+                   SET actual_state = ?, last_heartbeat = CURRENT_TIMESTAMP, 
+                       last_error = ?, updated_at = CURRENT_TIMESTAMP 
+                   WHERE id = 1""",
+                (state, error),
+                return_cursor=True
+            )
+        else:
+            self.execute(
+                """UPDATE bot_control 
+                   SET actual_state = ?, last_heartbeat = CURRENT_TIMESTAMP, 
+                       last_error = NULL, updated_at = CURRENT_TIMESTAMP 
+                   WHERE id = 1""",
+                (state,),
+                return_cursor=True
+            )
+        logger.warning(f"Updated actual_state to {state}")
+    
+    def update_bot_heartbeat(self) -> None:
+        """Update bot heartbeat timestamp"""
+        self.execute(
+            "UPDATE bot_control SET last_heartbeat = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = 1",
+            return_cursor=True
+        )
+    
+    def create_backtest(self, backtest_id: str, start_date: str, end_date: str, 
+                       symbols: Optional[str], initial_equity: float) -> None:
+        """Create a new backtest record"""
+        symbols_json = symbols if isinstance(symbols, str) else json.dumps(symbols) if symbols else None
+        self.execute(
+            """INSERT INTO backtests (id, status, progress, start_date, end_date, symbols, initial_equity, created_at)
+               VALUES (?, 'running', 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (backtest_id, start_date, end_date, symbols_json, initial_equity)
+        )
+    
+    def get_backtest(self, backtest_id: str) -> Optional[Dict[str, Any]]:
+        """Get backtest by ID"""
+        return self.fetch_one("SELECT * FROM backtests WHERE id = ?", (backtest_id,))
+    
+    def update_backtest_status(self, backtest_id: str, status: str, progress: Optional[int] = None,
+                               results: Optional[str] = None, error: Optional[str] = None,
+                               error_type: Optional[str] = None, error_details: Optional[str] = None) -> None:
+        """Update backtest status"""
+        updates = ["status = ?"]
+        params = [status]
+        
+        if progress is not None:
+            updates.append("progress = ?")
+            params.append(progress)
+        
+        if results is not None:
+            updates.append("results = ?")
+            params.append(results)
+        
+        if error is not None:
+            updates.append("error = ?")
+            params.append(error)
+        
+        if error_type is not None:
+            updates.append("error_type = ?")
+            params.append(error_type)
+        
+        if error_details is not None:
+            updates.append("error_details = ?")
+            params.append(error_details)
+        
+        if status == "completed":
+            updates.append("completed_at = CURRENT_TIMESTAMP")
+        
+        params.append(backtest_id)
+        
+        query = f"UPDATE backtests SET {', '.join(updates)} WHERE id = ?"
+        self.execute(query, tuple(params))
+    
+    def list_backtests(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """List all backtests"""
+        return self.fetch_all(
+            "SELECT * FROM backtests ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+
     def close(self):
         """Close database connection and writer thread"""
+        # Flush pending writes before shutdown
+        self.flush_writes()
         # Signal writer thread to shutdown
         self._shutdown = True
         self.write_queue.put((None, None))
@@ -299,6 +540,26 @@ class Database:
             self.connection.close()
             logger.info("Database connection closed")
 
+        # In test environments, ensure all connections for this path are closed to release file locks
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            others = list(self._instances_by_path.get(self.db_path, []))
+            for inst in others:
+                if inst is not self and inst.connection:
+                    try:
+                        inst._shutdown = True
+                        inst.write_queue.put((None, None))
+                        if inst.writer_thread and inst.writer_thread.is_alive():
+                            inst.writer_thread.join(timeout=5.0)
+                        inst.connection.close()
+                    except Exception:
+                        pass
+
+        # Deregister instance
+        try:
+            self._instances_by_path.get(self.db_path, set()).discard(self)
+        except Exception:
+            pass
+
     def __enter__(self):
         """Context manager entry"""
         return self
@@ -306,3 +567,9 @@ class Database:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass

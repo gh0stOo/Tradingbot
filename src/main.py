@@ -41,15 +41,31 @@ def get_equity(config: dict, bybit_client: BybitClient) -> float:
                 equity = float(account.get("totalEquity", account.get("totalWalletBalance", 0)))
                 return equity if equity > 0 else config.get("risk", {}).get("paperEquity", 10000)
         except Exception as e:
-            print(f"Error getting equity: {e}")
+            # Import logger locally since this function is called before main logger setup
+            from utils.logger import setup_logger
+            logger = setup_logger()
+            logger.error(f"Error getting equity: {e}")
             return config.get("risk", {}).get("paperEquity", 10000)
     
     return config.get("risk", {}).get("paperEquity", 10000)
 
 def main():
-    """Main trading bot loop"""
+    """Main trading bot loop - SQLite-based control"""
+    global global_state_manager
+    
     logger = setup_logger()
-    logger.info("Starting Trading Bot")
+    logger.info("Starting Trading Bot (SQLite-based control)")
+    
+    # Initialize BotControlDB FIRST (before anything else)
+    from dashboard.bot_control_db import BotControlDB
+    import os
+    db_path = os.getenv("TRADING_DB_PATH", "data/trading.db")
+    bot_control_db = BotControlDB(db_path)
+    
+    # Initial heartbeat and state
+    bot_control_db.update_actual_state("stopped")
+    bot_control_db.update_heartbeat()
+    logger.info("BotControlDB initialized - Worker will monitor desired_state from SQLite")
     
     # Load config
     try:
@@ -58,6 +74,7 @@ def main():
         logger.info(f"Config loaded. Mode: {config['trading']['mode']}")
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
+        bot_control_db.update_actual_state("error", f"Config load failed: {str(e)}")
         return
     
     # Initialize clients
@@ -122,7 +139,8 @@ def main():
         position_tracker=position_tracker,
         bybit_client=bybit_client if bybit_client else market_data_client,
         check_interval=5.0,  # Check every 5 seconds
-        auto_close_enabled=config.get("positionManagement", {}).get("autoClose", True)
+        auto_close_enabled=config.get("positionManagement", {}).get("autoClose", True),
+        db=db
     )
     logger.info("Position Manager initialized")
     
@@ -152,11 +170,11 @@ def main():
 
     market_data = MarketData(market_data_client)
     order_manager = OrderManager(bybit_client, trading_mode, position_tracker, data_collector)
-    bot = TradingBot(config, market_data, order_manager, data_collector, position_tracker)
+    bot = TradingBot(config, market_data, order_manager, data_collector, position_tracker, position_manager=position_manager)
 
     # FIX #6: Initialize State Manager for Bot Control (as global)
-    global global_state_manager
-    global_state_manager = BotStateManager()
+    if not global_state_manager:
+        global_state_manager = BotStateManager()
     logger.info("Bot State Manager initialized")
 
     # Initialize Genetic Algorithm Optimization (Phase 2.5)
@@ -255,7 +273,21 @@ def main():
         # Check if API server should be used
         use_api = config.get("api", {}).get("enabled", True)
         if use_api:
-            api_base_url = config.get("api", {}).get("baseUrl", "http://localhost:8000")
+            # In Docker, use service name instead of localhost
+            import os
+            # Check if we're running in Docker
+            is_docker = os.path.exists("/.dockerenv")
+            
+            # In Docker, always use service name (ignore config URL that might use localhost)
+            if is_docker:
+                api_base_url = "http://trading-bot-api:8000"  # Docker service name + internal port
+                logger.info(f"Using Docker service URL (overriding config): {api_base_url}")
+            else:
+                # Local development - use config URL or default to external port
+                config_url = config.get("api", {}).get("baseUrl")
+                api_base_url = config_url if config_url else "http://localhost:1337"
+                logger.info(f"Using API URL: {api_base_url}")
+            
             api_client = BotAPIClient(api_base_url)
             logger.info(f"API client initialized: {api_base_url}")
     except Exception as e:
@@ -403,7 +435,8 @@ def main():
     logger.info(f"Processing complete. {len(results)} signals generated.")
     
     # Set bot reference in state manager
-    state_manager.set_bot_reference(bot)
+    if global_state_manager:
+        global_state_manager.set_bot_reference(bot)
     
     # Start position monitoring if enabled
     if config.get("positionManagement", {}).get("monitoringEnabled", True):
@@ -430,20 +463,110 @@ def main():
                     except Exception as e:
                         logger.error(f"Error closing position {trade_id} during emergency stop: {e}")
     
-    state_manager.register_callback(on_emergency_stop)
-    
-    # Set initial status to running
-    state_manager.set_status(BotStatus.RUNNING)
-    logger.info("Bot started and set to RUNNING status")
+    if global_state_manager:
+        global_state_manager.register_callback(on_emergency_stop)
     
     # Main bot loop - runs continuously
-    loop_interval = config.get("trading", {}).get("loopInterval", 300)  # Default 5 minutes
+    loop_interval = config.get("trading", {}).get("loopInterval", 5)  # Default 5 seconds (CRITICAL FIX: was 300)
     logger.info(f"Starting main loop with interval: {loop_interval} seconds")
     logger.info("Bot is now running. Use Dashboard API to control: /api/bot/start, /api/bot/pause, /api/bot/stop")
+    logger.info("Worker reads desired_state from SQLite and writes actual_state + heartbeat")
+    try:
+        startup_state = global_state_manager.status.value if global_state_manager else "stopped"
+        bot_control_db.update_actual_state(startup_state)
+        bot_control_db.update_heartbeat()
+    except Exception as e:
+        logger.warning(f"Failed to persist startup state to DB: {e}")
     
     while True:
-        # Check bot status from state manager
-        current_status = state_manager.status
+        # Check desired_state from SQLite (worker pattern)
+        desired_state = bot_control_db.get_desired_state()
+        
+        if desired_state is None:
+            logger.error("Error reading desired_state from SQLite")
+            bot_control_db.update_actual_state("error", "Error reading desired_state")
+            time.sleep(5)
+            continue
+        
+        # Map desired_state to BotStatus
+        if desired_state == "running":
+            target_status = BotStatus.RUNNING
+        elif desired_state == "paused":
+            target_status = BotStatus.PAUSED
+        else:  # stopped
+            target_status = BotStatus.STOPPED
+        
+        # Check current status from state manager
+        current_status = global_state_manager.status if global_state_manager else BotStatus.STOPPED
+        
+        # Track if a state transition occurred (to avoid overwriting actual_state)
+        state_transition_occurred = False
+        
+        # Handle state transitions based on desired_state
+        if desired_state == "stopped" and current_status != BotStatus.STOPPED:
+            logger.info("Desired state is 'stopped' - stopping bot")
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.STOPPED)
+            bot_control_db.update_actual_state("stopped")
+            state_transition_occurred = True
+            # Continue in idle loop (don't exit!)
+            time.sleep(1)
+            continue
+        
+        if desired_state == "paused" and current_status == BotStatus.RUNNING:
+            logger.info("Desired state is 'paused' - pausing bot")
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.PAUSED)
+            bot_control_db.update_actual_state("paused")
+            state_transition_occurred = True
+            # Re-read current_status after state change
+            current_status = global_state_manager.status if global_state_manager else BotStatus.STOPPED
+        
+        if desired_state == "running" and current_status == BotStatus.STOPPED:
+            logger.info("Desired state is 'running' - starting bot")
+            # Note: Bot components already initialized at module level
+            # This just sets the status to RUNNING
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.RUNNING)
+            # CRITICAL: Update actual_state immediately in SQLite
+            bot_control_db.update_actual_state("running")
+            state_transition_occurred = True
+            # Re-read current_status after state change to ensure it's RUNNING
+            current_status = global_state_manager.status if global_state_manager else BotStatus.RUNNING
+            # CRITICAL: Skip stopped/paused handlers and go directly to trading loop
+            # Don't continue here - let the code fall through to trading execution
+        
+        if desired_state == "running" and current_status == BotStatus.PAUSED:
+            logger.info("Desired state is 'running' - resuming bot")
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.RUNNING)
+            bot_control_db.update_actual_state("running")
+            state_transition_occurred = True
+            # Re-read current_status after state change
+            current_status = global_state_manager.status if global_state_manager else BotStatus.RUNNING
+            # Continue to trading loop (don't go to stopped/paused handlers)
+        
+        # Update actual_state in SQLite based on current_status
+        # BUT ONLY if no state transition occurred (to avoid overwriting the transition)
+        if not state_transition_occurred:
+            if current_status == BotStatus.RUNNING:
+                bot_control_db.update_actual_state("running")
+            elif current_status == BotStatus.PAUSED:
+                bot_control_db.update_actual_state("paused")
+            elif current_status == BotStatus.ERROR:
+                error_msg = global_state_manager.error_message if global_state_manager else "Unknown error"
+                bot_control_db.update_actual_state("error", error_msg)
+            else:  # STOPPED
+                bot_control_db.update_actual_state("stopped")
+
+        # Persist a heartbeat + actual state every loop iteration so the web panel stays in sync
+        logger.info(f"Syncing bot state: desired={desired_state}, current={current_status.value}")
+        try:
+            current_state_value = global_state_manager.status.value if global_state_manager else target_status.value
+            bot_control_db.update_actual_state(current_state_value)
+            bot_control_db.update_heartbeat()
+        except Exception as e:
+            logger.warning(f"Failed to persist bot heartbeat/state: {e}")
         
         # Handle paused state
         if current_status == BotStatus.PAUSED:
@@ -451,14 +574,16 @@ def main():
             time.sleep(1)
             continue
         
-        # Handle stopped state (emergency stop or manual stop)
+        # Handle stopped state (idle loop - don't exit!)
         if current_status == BotStatus.STOPPED:
-            logger.info("Bot stopped, exiting main loop")
-            break
+            logger.debug("Bot is stopped, waiting in idle loop...")
+            time.sleep(1)
+            continue
         
         # Handle error state
         if current_status == BotStatus.ERROR:
-            logger.error(f"Bot in error state: {state_manager.error_message}")
+            error_msg = global_state_manager.error_message if global_state_manager else "Unknown error"
+            logger.error(f"Bot in error state: {error_msg}")
             # Wait and check again
             time.sleep(5)
             continue
@@ -479,7 +604,8 @@ def main():
             if circuit_breaker.get("tripped"):
                 reason = circuit_breaker['reason']
                 logger.warning(f"Circuit breaker tripped: {reason}")
-                state_manager.set_status(BotStatus.ERROR, f"Circuit breaker: {reason}")
+                if global_state_manager:
+                    global_state_manager.set_status(BotStatus.ERROR, f"Circuit breaker: {reason}")
                 
                 # Send alert
                 alert_manager.send_alert(
@@ -509,7 +635,8 @@ def main():
                 bot.btc_tracker.update_price(btc_price)
             except Exception as e:
                 logger.error(f"Failed to fetch market data: {e}")
-                state_manager.set_status(BotStatus.ERROR, f"Market data fetch failed: {e}")
+                if global_state_manager:
+                    global_state_manager.set_status(BotStatus.ERROR, f"Market data fetch failed: {e}")
                 time.sleep(60)
                 continue
             
@@ -598,12 +725,14 @@ def main():
             logger.info(f"Processing complete. {len(results)} signals generated.")
             
             # Update last execution timestamp in state manager
-            state_manager.update_last_execution()
+            if global_state_manager:
+                global_state_manager.update_last_execution()
             
         except Exception as e:
             logger.error(f"Error in main loop: {e}", exc_info=True)
             # Set error status in state manager
-            state_manager.set_status(BotStatus.ERROR, str(e))
+            if global_state_manager:
+                global_state_manager.set_status(BotStatus.ERROR, str(e))
             time.sleep(60)  # Wait before retrying
         
         # Sleep until next iteration

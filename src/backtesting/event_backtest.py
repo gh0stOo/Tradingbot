@@ -1,7 +1,7 @@
 """Event-Based Backtesting Engine"""
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from decimal import Decimal
 from datetime import datetime, timedelta
 import pandas as pd
@@ -48,7 +48,8 @@ class EventBacktest:
         strategies: Optional[List[BaseStrategy]] = None,
         config: Optional[Dict] = None,
         market_data: Optional[Any] = None,
-        initial_equity: Decimal = Decimal("10000")
+        initial_equity: Decimal = Decimal("10000"),
+        progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> None:
         """
         Initialize backtesting engine.
@@ -56,6 +57,7 @@ class EventBacktest:
         Args:
             initial_equity: Starting equity
             config: Backtest configuration
+            progress_callback: Optional callback function(progress: int, message: str) for progress updates
         """
         self.config = config or {}
         self.initial_equity = initial_equity
@@ -74,6 +76,9 @@ class EventBacktest:
         self.order_executor = order_executor
         self.strategies = strategies or []
         self.market_data = market_data
+        
+        # Progress callback
+        self.progress_callback = progress_callback
         
         # Results
         self.results: Dict[str, Any] = {}
@@ -118,25 +123,56 @@ class EventBacktest:
         # Sort by timestamp
         historical_data = historical_data.sort_values("timestamp").reset_index(drop=True)
         
+        total_rows = len(historical_data)
+        last_progress_update = {"value": 0}
+
+        # Progress callback helper - uses a mutable dict to avoid nonlocal errors
+        def update_progress(current_idx: int, message: str = ""):
+            if self.progress_callback:
+                progress = int((current_idx / total_rows) * 100) if total_rows > 0 else 0
+                # Only update every 1% to avoid too many callbacks
+                if progress >= last_progress_update["value"] + 1 or current_idx == total_rows - 1:
+                    self.progress_callback(progress, message)
+                    last_progress_update["value"] = progress
+        
+        # Initial progress
+        if self.progress_callback:
+            self.progress_callback(0, "Backtest wird initialisiert...")
+        
         # Process events
         trades = []
         equity_curve = []
         peak_equity = self.initial_equity
         
         for idx, row in historical_data.iterrows():
+            # Update progress every 100 rows or at key milestones
+            if idx % 100 == 0 or idx == total_rows - 1:
+                update_progress(idx, f"Verarbeite Daten: {idx + 1}/{total_rows}")
             timestamp = pd.to_datetime(row["timestamp"])
             
+            # Skip if not enough historical data (strategies need at least 30 bars)
+            if idx < 30:
+                continue
+            
             # Create market event
+            # Convert to float for consistency with strategies
+            klines_window = self._get_klines_window(historical_data, idx, window=50)
+            
+            # Log if klines window is too small
+            if len(klines_window) < 30:
+                logger.debug(f"[Backtest] Skipping event at idx {idx}: only {len(klines_window)} klines available (need 30+)")
+                continue
+            
             market_event = MarketEvent(
                 symbol=row.get("symbol", "UNKNOWN"),
-                price=Decimal(str(row["close"])),
-                volume=Decimal(str(row.get("volume", 0))),
+                price=float(row["close"]),
+                volume=float(row.get("volume", 0)),
                 timestamp=timestamp.isoformat(),
                 additional_data={
-                    "open": row.get("open", row["close"]),
-                    "high": row.get("high", row["close"]),
-                    "low": row.get("low", row["close"]),
-                    "klines_m1": self._get_klines_window(historical_data, idx, window=50),
+                    "open": float(row.get("open", row["close"])),
+                    "high": float(row.get("high", row["close"])),
+                    "low": float(row.get("low", row["close"])),
+                    "klines_m1": klines_window,
                 },
                 source="EventBacktest",
             )
@@ -146,23 +182,31 @@ class EventBacktest:
             for strategy in self.strategies:
                 try:
                     signals = strategy.generate_signals(market_event)
-                    all_signals.extend(signals)
+                    if signals:
+                        logger.info(f"[Backtest] {strategy.name} generated {len(signals)} signal(s) for {market_event.symbol} at idx {idx}")
+                        all_signals.extend(signals)
+                    elif idx % 100 == 0:  # Log every 100th event if no signals (for debugging)
+                        logger.debug(f"[Backtest] {strategy.name} generated 0 signals for {market_event.symbol} at idx {idx}")
                 except Exception as e:
-                    logger.warning(f"Error generating signals from {strategy.name}: {e}")
+                    logger.warning(f"Error generating signals from {strategy.name} at idx {idx}: {e}", exc_info=True)
             
             # Process signals through allocator
             if all_signals:
+                logger.debug(f"[Backtest] Processing {len(all_signals)} signal(s) through allocator")
                 order_intents = self.strategy_allocator.process_signals(all_signals)
+                logger.debug(f"[Backtest] Allocator returned {len(order_intents)} order intent(s)")
                 
                 # Process each order intent through risk engine
                 for order_intent in order_intents:
                     risk_approval = self.risk_engine.evaluate_order_intent(order_intent)
                     
                     if risk_approval.approved:
+                        logger.debug(f"[Backtest] Risk engine approved order for {order_intent.symbol} {order_intent.side}")
                         # Execute order
                         order_submission = self.order_executor.execute_approved_order(risk_approval)
                         
                         if order_submission and order_submission.status == "filled":
+                            logger.info(f"[Backtest] Trade executed: {order_submission.symbol} {order_submission.side} @ {order_submission.price}")
                             # Record trade
                             trades.append({
                                 "timestamp": timestamp,
@@ -171,6 +215,10 @@ class EventBacktest:
                                 "quantity": float(order_submission.quantity),
                                 "price": float(order_submission.price),
                             })
+                        else:
+                            logger.debug(f"[Backtest] Order not filled: {order_submission.status if order_submission else 'None'}")
+                    else:
+                        logger.debug(f"[Backtest] Risk engine rejected order for {order_intent.symbol}: {risk_approval.reason if hasattr(risk_approval, 'reason') else 'Unknown'}")
             
             # Update equity curve
             current_equity = self.trading_state.equity
@@ -183,8 +231,16 @@ class EventBacktest:
                 "drawdown": float(self.trading_state.drawdown),
             })
         
+        # Progress: Closing positions
+        if self.progress_callback:
+            self.progress_callback(95, "Schließe offene Positionen...")
+        
         # Close all open positions at end
         self._close_all_positions(historical_data.iloc[-1])
+        
+        # Progress: Calculating metrics
+        if self.progress_callback:
+            self.progress_callback(98, "Berechne Metriken...")
         
         # Calculate metrics
         results = self._calculate_metrics(
@@ -193,6 +249,10 @@ class EventBacktest:
             peak_equity,
             historical_data
         )
+        
+        # Progress: Complete
+        if self.progress_callback:
+            self.progress_callback(100, "Backtest abgeschlossen")
         
         self.results = results
         return results
@@ -207,12 +267,19 @@ class EventBacktest:
         if "timestamp" not in data.columns:
             return data
         
+        # Convert timestamp column to datetime
         data["timestamp_dt"] = pd.to_datetime(data["timestamp"])
         
         if start_date:
-            data = data[data["timestamp_dt"] >= start_date]
+            # Convert both to numpy datetime64 for comparison
+            start_ts = pd.Timestamp(start_date).to_numpy()
+            mask = data["timestamp_dt"].values >= start_ts
+            data = data[mask]
         if end_date:
-            data = data[data["timestamp_dt"] <= end_date]
+            # Convert both to numpy datetime64 for comparison
+            end_ts = pd.Timestamp(end_date).to_numpy()
+            mask = data["timestamp_dt"].values <= end_ts
+            data = data[mask]
         
         data = data.drop("timestamp_dt", axis=1)
         return data
@@ -407,6 +474,22 @@ class EventBacktest:
         else:
             expectancy = (final_equity - self.initial_equity) / max(len(trades), 1)
         
+        # Win Rate calculation (percentage of profitable trades)
+        win_rate = None
+        if trade_pnls:
+            winning_trades = [pnl for pnl in trade_pnls if pnl > 0]
+            win_rate = len(winning_trades) / len(trade_pnls) if len(trade_pnls) > 0 else 0.0
+        elif len(trades) > 0:
+            # Fallback: calculate from equity changes if trade_pnls not available
+            # Count trades that increased equity
+            winning_count = 0
+            for i in range(1, len(equity_curve)):
+                if equity_curve[i]["equity"] > equity_curve[i-1]["equity"]:
+                    winning_count += 1
+            win_rate = winning_count / max(len(trades), 1) if len(trades) > 0 else 0.0
+        else:
+            win_rate = 0.0
+        
         # Tail Loss (95th and 99th percentile of losses)
         tail_loss_95 = None
         tail_loss_99 = None
@@ -445,6 +528,8 @@ class EventBacktest:
             "peak_equity": float(peak_equity),
             "num_trades": num_trades,
             "trades_per_day": float(trades_per_day),
+            "win_rate": float(win_rate) if win_rate is not None else 0.0,
+            "win_rate_pct": float(win_rate * 100) if win_rate is not None else 0.0,
             "profit_factor": float(profit_factor) if profit_factor != float('inf') else None,
             "ulcer_index": float(ulcer_index),
             "expectancy": float(expectancy),

@@ -3,6 +3,7 @@
 from typing import Dict, Optional, Any
 from datetime import datetime
 import logging
+from threading import RLock
 
 from data.database import Database
 
@@ -23,6 +24,7 @@ class PositionTracker:
         self.db = db
         self.fee_rate = fee_rate  # Default 0.1% (0.001)
         self.open_positions: Dict[int, Dict[str, Any]] = {}  # trade_id -> position data
+        self._lock = RLock()
 
     def open_position(
         self,
@@ -50,19 +52,20 @@ class PositionTracker:
             True if successful
         """
         try:
-            position = {
-                "trade_id": trade_id,
-                "symbol": symbol,
-                "side": side,
-                "entry_price": entry_price,
-                "quantity": quantity,
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "entry_time": datetime.utcnow(),
-                "status": "open"
-            }
+            with self._lock:
+                position = {
+                    "trade_id": trade_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "entry_price": entry_price,
+                    "quantity": quantity,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "entry_time": datetime.utcnow(),
+                    "status": "open"
+                }
 
-            self.open_positions[trade_id] = position
+                self.open_positions[trade_id] = position
             logger.info(f"Position opened: {symbol} {side} @ {entry_price} (Trade ID: {trade_id})")
             return True
         except Exception as e:
@@ -91,11 +94,12 @@ class PositionTracker:
         try:
             exit_time = exit_time or datetime.utcnow()
 
-            if trade_id not in self.open_positions:
-                logger.warning(f"Trade {trade_id} not found in open positions")
-                return None
+            with self._lock:
+                if trade_id not in self.open_positions:
+                    logger.warning(f"Trade {trade_id} not found in open positions")
+                    return None
 
-            position = self.open_positions[trade_id]
+                position = self.open_positions[trade_id].copy()
 
             # Calculate PnL with fees
             side = position["side"]
@@ -139,6 +143,9 @@ class PositionTracker:
                 "status": "closed"
             })
 
+            with self._lock:
+                self.open_positions[trade_id] = position
+
             logger.info(
                 f"Position closed: {position['symbol']} "
                 f"PnL={realized_pnl:.2f} ({exit_reason}) "
@@ -160,7 +167,8 @@ class PositionTracker:
         Returns:
             Position data or None
         """
-        return self.open_positions.get(trade_id)
+        with self._lock:
+            return self.open_positions.get(trade_id)
 
     def get_open_positions(self) -> Dict[int, Dict[str, Any]]:
         """
@@ -169,10 +177,11 @@ class PositionTracker:
         Returns:
             Dictionary of open positions
         """
-        return {
-            tid: pos for tid, pos in self.open_positions.items()
-            if pos.get("status") == "open"
-        }
+        with self._lock:
+            return {
+                tid: pos for tid, pos in self.open_positions.items()
+                if pos.get("status") == "open"
+            }
 
     def calculate_pnl(self, trade_id: int) -> Optional[float]:
         """
@@ -185,7 +194,8 @@ class PositionTracker:
         Returns:
             Unrealized PnL or None
         """
-        position = self.open_positions.get(trade_id)
+        with self._lock:
+            position = self.open_positions.get(trade_id)
         if not position or position.get("status") != "open":
             return None
 

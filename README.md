@@ -1,153 +1,67 @@
-# Crypto Trading Bot
+# Codex TikTok SaaS (Mock-ready)
 
-Ein professioneller Trading Bot für Kryptowährungen mit ML-Integration, Backtesting und umfassendem Risk Management.
+This repo implements a lightweight, production-shaped SaaS for TikTok automation with multi-tenancy, quota enforcement, mocks for all external providers, and Docker-based local runtime.
 
-## Features
+## What it does
+- FastAPI backend with JWT auth, org/projects, planning (30x3 calendar), quota metering, asset generation, mock TikTok publishing, analytics.
+- Celery worker/beat for scheduled work.
+- React + Vite + Tailwind frontend with calendar, video library, analytics, and demo login auto-flow.
+- Mocks for OpenRouter LLM, video rendering (ffmpeg dummy MP4 + thumbnail), TikTok publisher, ASR, storage.
+- Seeds a full demo tenant with plans and metrics.
 
-### Core Features
-- **Multi-Strategy Trading**: 8 verschiedene Trading-Strategien (EMA Trend, MACD, RSI Mean Reversion, etc.)
-- **Market Regime Detection**: Automatische Erkennung von Trending, Ranging und Volatile Markets
-- **Ensemble Decision Making**: Kombination mehrerer Strategien mit Confidence Scoring
-- **Risk Management**: 
-  - Position Sizing mit Kelly Criterion
-  - Multi-Target Exits (TP1-TP4)
-  - Circuit Breaker
-  - Adaptive Risk Management (volatilitäts- und regime-basiert)
-- **Order Management**: 
-  - Paper Trading Simulation
-  - Live Trading via Bybit API
-  - Erweiterte Order Types (Limit, Stop, OCO, Trailing Stop)
-- **Position Management**: 
-  - Automatisches Exit-Management
-  - Unrealized PnL Tracking
-  - Multi-Target Support
+## Assumptions
+- Official TikTok API is integrated via an adapter scaffold; runtime defaults to mocks (`USE_MOCK_PROVIDERS=true`).
+- pgvector is off by default; RAG fallback is stubbed/in-memory (documented in `docs/ARCHITECTURE.md`).
+- Credentials encryption is placeholder; BYOK hook is in `models.Credential.encrypted_secret`.
+- Frontend uses the backend via `/api` proxy in Vite dev; in compose it resolves to `backend:8000`.
 
-### Performance & Optimierung
-- **Parallel Processing**: Parallele Verarbeitung mehrerer Coins
-- **Indicator Caching**: Optimierte Indikator-Berechnung mit Caching
-- **Rate Limiting**: Token Bucket Algorithmus für API-Calls
-- **Slippage Modeling**: Realistische Slippage-Berechnung basierend auf Liquidität
-
-### Data & Analytics
-- **SQLite Database**: Trade-Historie und Performance-Tracking
-- **Notion Integration**: Automatisches Logging von Trades
-- **Dashboard**: Web-Interface mit Performance-Statistiken
-- **Backtesting Framework**: Walk-Forward Analysis und Performance-Metriken
-
-### Machine Learning
-- **Feature Engineering**: 30+ Features für ML-Models
-- **Signal Predictor**: XGBoost-basierte Signal-Vorhersage
-- **Regime Classifier**: Random Forest für Regime-Klassifikation
-- **Online Learning**: Kontinuierliche Anpassung (Phase 3)
-
-### Monitoring & Alerting
-- **Health Checks**: API, Database, Position Tracker
-- **Alert System**: Discord/Email Alerts bei Anomalien
-- **Performance Monitoring**: Win Rate, Drawdown, Loss Streak Tracking
-
-## Architektur
-
-```
-src/
-├── trading/          # Core Trading Logic
-│   ├── bot.py       # Main Trading Bot
-│   ├── strategies.py # Trading Strategies
-│   ├── indicators.py # Technical Indicators
-│   ├── risk_manager.py # Risk Management
-│   ├── order_manager.py # Order Execution
-│   └── ...
-├── integrations/     # External Integrations
-│   ├── bybit.py     # Bybit API Client
-│   └── notion.py    # Notion API
-├── data/            # Data Management
-│   ├── database.py  # SQLite Database
-│   └── position_tracker.py # Position Tracking
-├── ml/              # Machine Learning
-│   ├── features.py  # Feature Engineering
-│   ├── signal_predictor.py # Signal Prediction
-│   └── regime_classifier.py # Regime Classification
-├── backtesting/     # Backtesting Framework
-├── monitoring/      # Monitoring & Alerting
-└── api/             # REST API für n8n Integration
-```
-
-## Installation
-
-1. **Dependencies installieren**:
+## Quickstart
 ```bash
-pip install -r requirements.txt
+python -m venv .venv && .\.venv\Scripts\activate
+pip install -r backend/requirements.txt
+cd backend && uvicorn app.main:app --reload
+# frontend
+cd frontend && npm install && npm run dev
 ```
 
-2. **Konfiguration**:
-- Kopiere `config/config.example.yaml` zu `config/config.yaml`
-- Fülle API-Keys und Einstellungen aus
-
-3. **Datenbank initialisieren**:
+## Docker (recommended)
 ```bash
-python scripts/init_database.py
+docker compose -f infra/docker-compose.yml up --build
 ```
 
-## Verwendung
-
-### Paper Trading
+## Seed demo data
 ```bash
-python src/main.py
+make migrate   # optional; metadata create_all also runs
+make seed
 ```
 
-### Live Trading
-- Stelle sicher, dass `config.yaml` auf `LIVE` oder `TESTNET` gesetzt ist
-- API-Keys müssen konfiguriert sein
+## Demo credentials (local only)
+- Email: `demo@codex.local`
+- Password: `demopass123`
+Change via `settings.demo_password` or `.env`.
 
-### Backtesting
-```bash
-python scripts/run_backtest.py --symbol BTCUSDT --start 2024-01-01 --end 2024-12-31
-```
+## Environment
+Copy `.env.example` to `.env` and adjust:
+- `DATABASE_URL`, `REDIS_URL`, `BROKER_URL`
+- `USE_MOCK_PROVIDERS=true` (default)
+- `OPENROUTER_API_KEY`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` for real adapters (scaffolded)
+- `STORAGE_PATH` for media
 
-### Dashboard starten
-```bash
-python src/api/server.py
-```
-Dann im Browser öffnen: `http://localhost:8000`
+## Make targets
+- `make up` / `make down` / `make logs`
+- `make test` – runs unit tests (quota, tenant isolation, orchestrator schema)
+- `make seed` – seeds demo org/user/project/plan
 
-## Konfiguration
+## Structure
+- `backend/` FastAPI app, Celery worker
+- `frontend/` React Vite UI
+- `infra/` docker-compose.yml
+- `migrations/` alembic env
+- `docs/` checklist, architecture, API
+- `scripts/seed.py` demo data
 
-### Trading Mode
-- `PAPER`: Simulation ohne echtes Geld
-- `TESTNET`: Bybit Testnet
-- `LIVE`: Live Trading (VORSICHT!)
-
-### Risk Management
-- `riskPct`: Prozent des Equities pro Trade (default: 2%)
-- `kelly.enabled`: Kelly Criterion aktivieren
-- `circuitBreaker`: Automatisches Stoppen bei Verlusten
-
-### Strategien
-Strategie-Gewichtungen können in `config.yaml` angepasst werden.
-
-## Testing
-
-```bash
-# Alle Tests ausführen
-python -m pytest tests/
-
-# Spezifische Tests
-python -m pytest tests/test_strategies.py
-python -m pytest tests/test_risk_manager.py
-```
-
-## Dokumentation
-
-- Siehe `FEATURES.md` für detaillierte Feature-Liste
-- API-Dokumentation: `docs/API_DOCUMENTATION.md`
-- Troubleshooting: `docs/TROUBLESHOOTING.md`
-
-## Sicherheit
-
-- **Niemals API-Keys committen!**
-- Verwende Environment Variables für Secrets
-- Teste immer zuerst im Paper Mode
-- Starte mit kleinen Positionen
-
-## License
-
-Proprietär - Alle Rechte vorbehalten
+## Production notes
+- Swap `LocalStorage` with S3/MinIO via envs; use tenant prefixes.
+- Replace `MockTikTokPublisher` and `MockLLM` with real adapters (OpenRouter, TikTok OAuth2) once keys are available.
+- Enable pgvector in Postgres for production retrieval.
+- Harden auth (refresh rotation, password reset emails, rate limits) before exposure.

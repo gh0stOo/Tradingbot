@@ -55,6 +55,11 @@ class BotStateManager:
         self._bot_process: Optional[Any] = None
         self._bot_thread: Optional[threading.Thread] = None
         
+        # Progress tracking for startup
+        self._startup_progress: int = 0
+        self._startup_message: Optional[str] = None
+        self._startup_status: Optional[str] = None  # "initializing", "starting", "running", "error"
+        
         logger.info("BotStateManager initialized")
     
     def register_callback(self, callback: Callable[[BotStatus], None]) -> None:
@@ -83,7 +88,7 @@ class BotStateManager:
             if self.start_time:
                 uptime_seconds = int((datetime.utcnow() - self.start_time).total_seconds())
             
-            return {
+            status_data = {
                 "status": self.status.value,
                 "mode": self.mode,
                 "uptime": self._format_uptime(uptime_seconds),
@@ -91,6 +96,16 @@ class BotStateManager:
                 "startTime": self.start_time.isoformat() if self.start_time else None,
                 "error": self.error_message
             }
+            
+            # Add startup progress if available
+            if self._startup_progress > 0:
+                status_data["startupProgress"] = {
+                    "progress": self._startup_progress,
+                    "message": self._startup_message,
+                    "status": self._startup_status
+                }
+            
+            return status_data
     
     def set_status(self, status: BotStatus, error_message: Optional[str] = None) -> None:
         """Set bot status"""
@@ -103,10 +118,92 @@ class BotStateManager:
                 self.start_time = datetime.utcnow()
             elif status == BotStatus.STOPPED:
                 self.start_time = None
+                self._startup_progress = 0
+                self._startup_message = None
+                self._startup_status = None
             
             if old_status != status:
                 logger.info(f"Bot status changed: {old_status.value} -> {status.value}")
                 self._notify_callbacks(status)
+                # Broadcast status update via WebSocket
+                self._broadcast_status_update()
+    
+    def set_startup_progress(self, progress: int, message: Optional[str] = None, status: Optional[str] = None) -> None:
+        """Set startup progress (0-100)"""
+        with self._state_lock:
+            self._startup_progress = max(0, min(100, progress))
+            if message:
+                self._startup_message = message
+            if status:
+                self._startup_status = status
+            # Broadcast progress update via WebSocket
+            self._broadcast_progress_update()
+    
+    def get_startup_progress(self) -> Dict[str, Any]:
+        """Get current startup progress"""
+        with self._state_lock:
+            return {
+                "progress": self._startup_progress,
+                "message": self._startup_message,
+                "status": self._startup_status
+            }
+    
+    def _broadcast_status_update(self) -> None:
+        """Broadcast status update via WebSocket (async)"""
+        try:
+            # Import here to avoid circular dependency
+            from dashboard.websocket_manager import websocket_manager
+            import asyncio
+            
+            # Get current status
+            status_data = self.get_status()
+            
+            # Try to send update (non-blocking)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, schedule coroutine
+                    asyncio.create_task(websocket_manager.send_bot_status_update(status_data))
+                else:
+                    # If no loop running, run coroutine
+                    asyncio.run(websocket_manager.send_bot_status_update(status_data))
+            except RuntimeError:
+                # No event loop, create new one
+                asyncio.run(websocket_manager.send_bot_status_update(status_data))
+        except Exception as e:
+            # Don't fail if WebSocket is not available
+            logger.debug(f"Could not broadcast status update via WebSocket: {e}")
+    
+    def _broadcast_progress_update(self) -> None:
+        """Broadcast progress update via WebSocket (async)"""
+        try:
+            from dashboard.websocket_manager import websocket_manager
+            import asyncio
+            
+            progress_data = self.get_startup_progress()
+            
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(websocket_manager.send_bot_progress_update(
+                        progress_data["progress"],
+                        progress_data["message"],
+                        progress_data["status"]
+                    ))
+                else:
+                    asyncio.run(websocket_manager.send_bot_progress_update(
+                        progress_data["progress"],
+                        progress_data["message"],
+                        progress_data["status"]
+                    ))
+            except RuntimeError:
+                asyncio.run(websocket_manager.send_bot_progress_update(
+                    progress_data["progress"],
+                    progress_data["message"],
+                    progress_data["status"]
+                ))
+        except Exception as e:
+            logger.debug(f"Could not broadcast progress update via WebSocket: {e}")
     
     def update_last_execution(self) -> None:
         """Update last execution timestamp"""

@@ -5,8 +5,16 @@ import random
 import logging
 from typing import Dict, Optional, Any
 from datetime import datetime
+from decimal import Decimal, ROUND_DOWN
 from integrations.bybit import BybitClient
 from trading.slippage_model import SlippageModel
+from utils.exceptions import (
+    NetworkError,
+    RateLimitError,
+    InsufficientBalanceError,
+    APIError,
+)
+from utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +43,41 @@ class OrderManager:
         self.data_collector = data_collector
         # FIX #2: Initialize slippage model (was missing)
         self.slippage_model = SlippageModel()
+
+    @retry_with_backoff(
+        max_retries=3,
+        initial_delay=1.0,
+        max_delay=10.0,
+        exponential_base=2.0,
+        jitter=True,
+        retryable_exceptions=(NetworkError, RateLimitError),
+        non_retryable_exceptions=(InsufficientBalanceError,)
+    )
+    def _create_order_with_retry(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an order with retry for transient errors."""
+        return self.client.create_order(payload)
+    
+    def _quantize_to_step(self, value: float, step: float) -> float:
+        """
+        Round a numeric value down to the nearest exchange step.
+        """
+        try:
+            step_dec = Decimal(str(step))
+            if step_dec <= 0:
+                return value
+            quantized = (Decimal(str(value)) / step_dec).to_integral_value(rounding=ROUND_DOWN) * step_dec
+            return float(quantized)
+        except Exception:
+            return value
+
+    def _sanitize_quantity(self, qty: float, qty_step: float, min_order_qty: float) -> float:
+        """
+        Quantize quantity and enforce minimums to avoid rejected orders.
+        """
+        quantized_qty = self._quantize_to_step(qty, qty_step)
+        if quantized_qty < min_order_qty:
+            return 0.0
+        return quantized_qty
     
     def execute_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -55,8 +98,20 @@ class OrderManager:
         """Execute paper trade (simulated)"""
         symbol = order_data["symbol"]
         side = order_data["side"]
-        qty = order_data["qty"]
         price = order_data["price"]
+        qty_step = float(order_data.get("qtyStep", 0.001))
+        min_order_qty = float(order_data.get("minOrderQty", qty_step))
+        qty = self._sanitize_quantity(float(order_data["qty"]), qty_step, min_order_qty)
+
+        if qty <= 0:
+            return {
+                "success": False,
+                "error": "Quantity below exchange minimum after rounding",
+                "symbol": symbol,
+                "side": side,
+                "qty": 0,
+                "mode": "PAPER"
+            }
         
         # Calculate order size in USD
         order_size_usd = qty * price
@@ -155,15 +210,32 @@ class OrderManager:
         
         symbol = order_data["symbol"]
         side = order_data["side"]
-        qty = order_data["qty"]
         price = order_data["price"]
         stop_loss = order_data.get("stopLoss")
         take_profit = order_data.get("takeProfit")
-        tick_size = order_data.get("tickSize", "0.01")
+        tick_size = float(order_data.get("tickSize", "0.01"))
+        qty_step = float(order_data.get("qtyStep", 0.001))
+        min_order_qty = float(order_data.get("minOrderQty", qty_step))
+        qty = self._sanitize_quantity(float(order_data["qty"]), qty_step, min_order_qty)
+
+        if qty <= 0:
+            logger.warning(
+                "Order rejected: quantity below minimum after rounding",
+                extra={"context": {"symbol": symbol, "side": side, "qty": order_data.get("qty"), "min_order_qty": min_order_qty}}
+            )
+            return {
+                "success": False,
+                "error": "Quantity below exchange minimum after rounding",
+                "symbol": symbol,
+                "side": side,
+                "qty": 0,
+                "mode": self.trading_mode,
+                "timestamp": int(time.time() * 1000)
+            }
         
         # Round prices to tick size
         def round_price(p: float, tick: float) -> str:
-            return str((int(p / tick) * tick))
+            return str(self._quantize_to_step(p, tick))
         
         # Prepare order payload
         order_payload = {
@@ -189,7 +261,7 @@ class OrderManager:
         
         # Execute main entry order
         try:
-            result = self.client.create_order(order_payload)
+            result = self._create_order_with_retry(order_payload)
             order_id = result.get("orderId", "")
             entry_order_link_id = result.get("orderLinkId", f"bot_entry_{int(time.time() * 1000)}")
             
@@ -253,7 +325,24 @@ class OrderManager:
                 "orderLinkId": entry_order_link_id,
                 "multiTargetOrders": tp_order_ids if tp_order_ids else None
             }
-        except Exception as e:
+        except InsufficientBalanceError as e:
+            logger.error(
+                f"Order rejected due to insufficient balance for {symbol}: {e}",
+                extra={"context": {"symbol": symbol, "side": side}}
+            )
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "retryable": False,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "mode": self.trading_mode,
+                "timestamp": int(time.time() * 1000),
+                "timestampISO": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+            }
+        except (NetworkError, RateLimitError, APIError) as e:
             logger.error(
                 f"Error executing order for {symbol}: {e}",
                 exc_info=True,
@@ -263,6 +352,25 @@ class OrderManager:
                 "success": False,
                 "error": str(e),
                 "error_type": type(e).__name__,
+                "retryable": isinstance(e, (NetworkError, RateLimitError)),
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "mode": self.trading_mode,
+                "timestamp": int(time.time() * 1000),
+                "timestampISO": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+            }
+        except Exception as e:
+            logger.error(
+                f"Unexpected error executing order for {symbol}: {e}",
+                exc_info=True,
+                extra={"context": {"symbol": symbol, "side": side, "error_type": type(e).__name__}}
+            )
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "retryable": False,
                 "symbol": symbol,
                 "side": side,
                 "qty": qty,

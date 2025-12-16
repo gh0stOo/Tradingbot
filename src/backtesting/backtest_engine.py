@@ -11,6 +11,7 @@ from trading.indicators import Indicators
 from trading.regime_detector import RegimeDetector
 from trading.strategies import Strategies
 from trading.risk_manager import RiskManager
+from trading.slippage_model import SlippageModel
 from trading.bot import TradingBot
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,8 @@ class BacktestEngine:
         config: Dict[str, Any],
         initial_equity: float = 10000.0,
         commission_rate: float = 0.001,  # 0.1% default
-        slippage_rate: float = 0.0002  # 0.02% default
+        slippage_rate: float = 0.0002,  # 0.02% default
+        use_dynamic_slippage: bool = True
     ):
         """
         Initialize Backtest Engine
@@ -101,17 +103,20 @@ class BacktestEngine:
             initial_equity: Starting equity
             commission_rate: Commission rate (0.001 = 0.1%)
             slippage_rate: Slippage rate (0.0002 = 0.02%)
+            use_dynamic_slippage: Whether to use live slippage model
         """
         self.config = config
         self.initial_equity = initial_equity
         self.commission_rate = commission_rate
         self.slippage_rate = slippage_rate
+        self.use_dynamic_slippage = use_dynamic_slippage
         
         # Initialize components
         self.indicators_calc = Indicators()
         self.regime_detector = RegimeDetector()
         self.strategies = Strategies(config)
         self.risk_manager = RiskManager(config, data_collector=None)
+        self.slippage_model = SlippageModel() if use_dynamic_slippage else None
         
         # Backtest state
         self.equity = initial_equity
@@ -156,7 +161,10 @@ class BacktestEngine:
         symbol: str,
         side: str,
         price: float,
-        quantity: float
+        quantity: float,
+        volume_24h_usd: Optional[float] = None,
+        volatility: Optional[float] = None,
+        asset_type: str = "linear"
     ) -> float:
         """
         Simulate order execution with slippage
@@ -166,19 +174,28 @@ class BacktestEngine:
             side: Buy or Sell
             price: Target price
             quantity: Order quantity
+            volume_24h_usd: Estimated 24h notional volume for slippage model
+            volatility: Estimated volatility
+            asset_type: Instrument type (default linear)
             
         Returns:
             Executed price (with slippage)
         """
-        # Apply slippage
-        if side == "Buy":
-            # Buy orders execute at slightly higher price
-            executed_price = price * (1 + self.slippage_rate)
-        else:  # Sell
-            # Sell orders execute at slightly lower price
-            executed_price = price * (1 - self.slippage_rate)
+        if self.use_dynamic_slippage and self.slippage_model:
+            slippage = self.slippage_model.calculate_slippage(
+                price=price,
+                order_size_usd=quantity * price,
+                volume_24h_usd=volume_24h_usd,
+                side=side,
+                volatility=volatility,
+                asset_type=asset_type
+            )
+            return price + slippage if side == "Buy" else price - slippage
         
-        return executed_price
+        # Fallback fixed slippage
+        if side == "Buy":
+            return price * (1 + self.slippage_rate)
+        return price * (1 - self.slippage_rate)
     
     def calculate_position_size(
         self,
@@ -251,6 +268,10 @@ class BacktestEngine:
             current_row = df.iloc[i]
             current_time = current_row['timestamp']
             current_price = current_row['close']
+            window_start = max(0, i - 1440)  # Approximate last 24h on 1m data
+            window_df = df.iloc[window_start:i+1]
+            volume_24h_usd = float((window_df['volume'] * window_df['close']).sum()) if not window_df.empty else None
+            volatility = float(window_df['close'].pct_change().std()) if len(window_df) > 1 else None
             
             # Update equity history
             self.equity_history.append((current_time, self.equity))
@@ -265,7 +286,9 @@ class BacktestEngine:
                         position.symbol,
                         "Sell" if position.side == "Buy" else "Buy",
                         current_price,
-                        position.quantity
+                        position.quantity,
+                        volume_24h_usd=volume_24h_usd,
+                        volatility=volatility
                     )
                     position.close(exit_price, current_time, exit_reason)
                     positions_to_close.append(trade_id)
@@ -289,18 +312,19 @@ class BacktestEngine:
                     indicators[col] = current_row.get(col, 0)
             
             # Detect regime
-            regime = self.regime_detector.detect_regime(
-                indicators.get('adx', 0),
-                indicators.get('atr', 0),
-                current_price
-            )
+            regime = self.regime_detector.detect_regime(indicators, current_price)
             
             # Run strategies
+            candles_m1 = df.iloc[:i+1]
+            candles_m5 = candles_m1  # For simplified backtest reuse same data
+            candles_m15 = candles_m1
             strategy_signals = self.strategies.run_all_strategies(
                 indicators=indicators,
                 regime=regime,
                 price=current_price,
-                klines=df.iloc[:i+1]  # Historical data up to current point
+                candles_m1=candles_m1,
+                candles_m5=candles_m5,
+                candles_m15=candles_m15
             )
             
             # Simple ensemble decision (take first signal with confidence > 0.6)
@@ -331,7 +355,9 @@ class BacktestEngine:
                 symbol,
                 signal['side'],
                 current_price,
-                position_data['qty']
+                position_data['qty'],
+                volume_24h_usd=volume_24h_usd,
+                volatility=volatility
             )
             
             # Create position
@@ -357,12 +383,17 @@ class BacktestEngine:
         # Close any remaining positions at end
         final_price = df.iloc[-1]['close']
         final_time = df.iloc[-1]['timestamp']
+        final_window = df.iloc[max(0, len(df) - 1440):]
+        final_volume_24h_usd = float((final_window['volume'] * final_window['close']).sum()) if not final_window.empty else None
+        final_volatility = float(final_window['close'].pct_change().std()) if len(final_window) > 1 else None
         for trade_id, position in list(self.positions.items()):
             exit_price = self.simulate_order(
                 position.symbol,
                 "Sell" if position.side == "Buy" else "Buy",
                 final_price,
-                position.quantity
+                position.quantity,
+                volume_24h_usd=final_volume_24h_usd,
+                volatility=final_volatility
             )
             position.close(exit_price, final_time, "End of Backtest")
             self.closed_trades.append(position)

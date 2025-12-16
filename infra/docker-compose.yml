@@ -1,0 +1,55 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: codex
+      POSTGRES_PASSWORD: codex
+      POSTGRES_DB: codex
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+  backend:
+    build: ../backend
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://codex:codex@db:5432/codex
+      REDIS_URL: redis://redis:6379/0
+      BROKER_URL: redis://redis:6379/1
+      STORAGE_PATH: /data/storage
+      USE_MOCK_PROVIDERS: "true"
+      SECRET_KEY: dev-secret
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend/app:/app/app
+      - storage:/data/storage
+  worker:
+    build: ../backend
+    command: ["celery", "-A", "app.celery_app.celery", "worker", "-B", "-l", "info"]
+    depends_on:
+      - backend
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://codex:codex@db:5432/codex
+      REDIS_URL: redis://redis:6379/0
+      BROKER_URL: redis://redis:6379/1
+      USE_MOCK_PROVIDERS: "true"
+  frontend:
+    build: ../frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_BACKEND_URL: http://localhost:8000
+volumes:
+  db-data:
+  storage:

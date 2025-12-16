@@ -250,18 +250,20 @@ class RiskEngine:
         
         # Total risk for this trade
         total_risk = risk_per_unit * quantity
-        risk_pct = total_risk / equity
+        risk_pct_price = risk_per_unit / entry_price  # % of price at risk
+        risk_pct_equity = total_risk / equity
         
-        if risk_pct > self.max_risk_per_trade:
+        if risk_pct_price >= self.max_risk_per_trade:
             return {
                 "passed": False,
-                "reason": f"Risk per trade too high: {float(risk_pct * 100):.2f}% > {float(self.max_risk_per_trade * 100):.2f}%"
+                "reason": f"Risk per trade too high: {float(risk_pct_price * 100):.2f}% > {float(self.max_risk_per_trade * 100):.2f}%"
             }
         
         return {
             "passed": True,
             "metrics": {
-                "risk_per_trade": float(risk_pct),
+                "risk_per_trade": float(risk_pct_price),
+                "risk_per_equity": float(risk_pct_equity),
                 "risk_amount": float(total_risk)
             }
         }

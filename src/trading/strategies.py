@@ -41,7 +41,7 @@ class Strategies:
         
         return None
     
-    def macd_trend(self, indicators: Dict[str, float], regime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def macd_trend(self, indicators: Dict[str, float], regime: Dict[str, Any], price: float = None) -> Optional[Dict[str, Any]]:
         """Strategy 2: MACD Trend (trending markets)"""
         if regime["type"] != "trending":
             return None
@@ -67,7 +67,7 @@ class Strategies:
         
         return None
     
-    def rsi_mean_reversion(self, indicators: Dict[str, float], regime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def rsi_mean_reversion(self, indicators: Dict[str, float], regime: Dict[str, Any], price: float = None) -> Optional[Dict[str, Any]]:
         """Strategy 3: RSI Mean Reversion (ranging markets)"""
         if regime["type"] != "ranging":
             return None
@@ -329,9 +329,10 @@ class Strategies:
         indicators: Dict[str, float],
         regime: Dict[str, Any],
         price: float,
-        candles_m1: pd.DataFrame,
-        candles_m5: pd.DataFrame,
-        candles_m15: pd.DataFrame
+        candles_m1: Optional[pd.DataFrame] = None,
+        candles_m5: Optional[pd.DataFrame] = None,
+        candles_m15: Optional[pd.DataFrame] = None,
+        **kwargs
     ) -> List[Dict[str, Any]]:
         """
         Run all strategies and filter by regime
@@ -349,6 +350,11 @@ class Strategies:
         """
         signals = []
         
+        # Accept legacy kwargs (klines, klines_m5, klines_m15)
+        candles_m1 = kwargs.get("klines", candles_m1)
+        candles_m5 = kwargs.get("klines_m5", candles_m5 if candles_m5 is not None else candles_m1)
+        candles_m15 = kwargs.get("klines_m15", candles_m15 if candles_m15 is not None else candles_m1)
+
         # Strategy regime mapping
         strategy_regimes = {
             "emaTrend": ["trending"],
@@ -362,15 +368,19 @@ class Strategies:
         }
         
         # Run all strategies (with updated signatures)
+        cm1 = candles_m1
+        cm5 = candles_m5 if candles_m5 is not None else candles_m1
+        cm15 = candles_m15 if candles_m15 is not None else candles_m1
+
         strategy_results = [
             self.ema_trend(indicators, regime, price),
             self.macd_trend(indicators, regime),
             self.rsi_mean_reversion(indicators, regime),
             self.bollinger_mean_reversion(indicators, regime, price),
             self.adx_trend(indicators, regime),
-            self.volume_profile(candles_m1, regime, indicators),
-            self.volatility_breakout(indicators, regime, price, candles_m1),
-            self.multi_timeframe(candles_m1, candles_m5, candles_m15, regime, indicators)
+            self.volume_profile(cm1, regime, indicators),
+            self.volatility_breakout(indicators, regime, price, cm1),
+            self.multi_timeframe(cm1, cm5, cm15, regime, indicators)
         ]
         
         # Filter by regime and collect valid signals

@@ -1,7 +1,6 @@
 """Intraday Trend Continuation Strategy"""
 
 from typing import List
-from decimal import Decimal
 import pandas as pd
 from events.market_event import MarketEvent
 from events.signal_event import SignalEvent
@@ -26,9 +25,10 @@ class TrendContinuationStrategy(BaseStrategy):
         
         # Strategy parameters
         self.config = config.get("trendContinuation", {})
-        self.pullback_threshold = self.config.get("pullbackThreshold", 0.015)  # 1.5% pullback
-        self.volatility_reset_ratio = self.config.get("volatilityResetRatio", 0.60)  # 60% of move range
-        self.min_confidence = self.config.get("minConfidence", 0.70)
+        # Temporarily reduced thresholds for testing
+        self.pullback_threshold = self.config.get("pullbackThreshold", 0.01)  # 1% pullback (reduced from 1.5%)
+        self.volatility_reset_ratio = self.config.get("volatilityResetRatio", 0.70)  # 70% of move range (increased from 60%)
+        self.min_confidence = self.config.get("minConfidence", 0.50)  # 50% (reduced from 70%)
     
     def generate_signals(self, market_event: MarketEvent) -> List[SignalEvent]:
         """
@@ -79,16 +79,16 @@ class TrendContinuationStrategy(BaseStrategy):
                 return []  # No clear HTF trend
             
             # Check for Pullback on 1m
-            current_price = Decimal(str(market_event.price))
+            current_price = float(market_event.price)
             
             # Recent high/low for pullback detection
             recent_lookback = 20
-            recent_high = df_m1["high"].iloc[-recent_lookback:].max()
-            recent_low = df_m1["low"].iloc[-recent_lookback:].min()
+            recent_high = float(df_m1["high"].iloc[-recent_lookback:].max())
+            recent_low = float(df_m1["low"].iloc[-recent_lookback:].min())
             
             # Pullback in uptrend: price pulled back from recent high
             # Pullback in downtrend: price pulled back from recent low
-            pullback_size = Decimal("0")
+            pullback_size = 0.0
             is_pullback = False
             
             if is_htf_bullish:
@@ -110,13 +110,13 @@ class TrendContinuationStrategy(BaseStrategy):
                 return []
             
             # Recent range (last 5 bars)
-            recent_range = df_m1["high"].iloc[-5:].max() - df_m1["low"].iloc[-5:].min()
+            recent_range = float(df_m1["high"].iloc[-5:].max() - df_m1["low"].iloc[-5:].min())
             
             # Move range (bars 10-20 before recent)
             if len(df_m1) >= 25:
-                move_range = df_m1["high"].iloc[-25:-5].max() - df_m1["low"].iloc[-25:-5].min()
+                move_range = float(df_m1["high"].iloc[-25:-5].max() - df_m1["low"].iloc[-25:-5].min())
             else:
-                move_range = recent_range * Decimal("2")
+                move_range = recent_range * 2.0
             
             if move_range <= 0:
                 return []
@@ -128,7 +128,7 @@ class TrendContinuationStrategy(BaseStrategy):
                 return []
             
             signals: List[SignalEvent] = []
-            atr = indicators_m1.get("atr", 0)
+            atr = float(indicators_m1.get("atr", 0))
             
             if atr <= 0:
                 return []
@@ -138,8 +138,8 @@ class TrendContinuationStrategy(BaseStrategy):
                 # Uptrend continuation: Buy on pullback
                 confidence = min(0.90, 0.70 + (pullback_size - self.pullback_threshold) * 5.0)
                 if confidence >= self.min_confidence:
-                    sl_distance = Decimal(str(atr)) * Decimal("2.0")
-                    tp_distance = sl_distance * Decimal("3.0")  # 3R target
+                    sl_distance = atr * 2.0
+                    tp_distance = sl_distance * 3.0  # 3R target
                     
                     stop_loss = current_price - sl_distance
                     take_profit = current_price + tp_distance
@@ -167,8 +167,8 @@ class TrendContinuationStrategy(BaseStrategy):
                 # Downtrend continuation: Sell on pullback
                 confidence = min(0.90, 0.70 + (pullback_size - self.pullback_threshold) * 5.0)
                 if confidence >= self.min_confidence:
-                    sl_distance = Decimal(str(atr)) * Decimal("2.0")
-                    tp_distance = sl_distance * Decimal("3.0")
+                    sl_distance = atr * 2.0
+                    tp_distance = sl_distance * 3.0
                     
                     stop_loss = current_price + sl_distance
                     take_profit = current_price - tp_distance

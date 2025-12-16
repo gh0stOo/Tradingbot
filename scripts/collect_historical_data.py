@@ -100,25 +100,29 @@ class HistoricalDataCollector:
                     limit=limit
                 )
 
-                if not response or not response.get("result", {}).get("list"):
+                if not klines_raw:
                     self.logger.warning(f"No klines returned for {symbol} at {current_time}")
                     break
 
-                klines = response["result"]["list"]
-
-                # Convert to standard format
-                for kline in klines:
-                    all_klines.append({
-                        "timestamp": datetime.fromtimestamp(int(kline[0]) / 1000),
-                        "open": float(kline[1]),
-                        "high": float(kline[2]),
-                        "low": float(kline[3]),
-                        "close": float(kline[4]),
-                        "volume": float(kline[5])
-                    })
-
-                # Move to next batch
-                current_time = int(kline[0]) + 1000
+                # Convert to standard format (Bybit returns list of lists)
+                for kline in klines_raw:
+                    if isinstance(kline, list) and len(kline) >= 6:
+                        all_klines.append({
+                            "timestamp": datetime.fromtimestamp(int(kline[0]) / 1000),
+                            "open": float(kline[1]),
+                            "high": float(kline[2]),
+                            "low": float(kline[3]),
+                            "close": float(kline[4]),
+                            "volume": float(kline[5])
+                        })
+                        # Update current_time for next batch
+                        current_time = int(kline[0]) + (int(interval) * 60 * 1000)
+                    else:
+                        self.logger.warning(f"Unexpected kline format: {kline}")
+                
+                # If no new data, break
+                if not klines_raw:
+                    break
 
                 # Rate limiting
                 time.sleep(0.2)
@@ -304,6 +308,16 @@ class HistoricalDataCollector:
 
 def main():
     """Main entry point"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Collect historical market data")
+    parser.add_argument("--days", type=int, default=30, help="Number of days to fetch (default: 30)")
+    parser.add_argument("--top-n", type=int, default=1, help="Number of top coins (default: 1)")
+    parser.add_argument("--symbol", type=str, default="BTCUSDT", help="Specific symbol to fetch (default: BTCUSDT)")
+    parser.add_argument("--interval", type=str, default="1", help="Kline interval (default: 1)")
+    
+    args = parser.parse_args()
+    
     logger = setup_logger()
 
     try:
@@ -315,12 +329,21 @@ def main():
         # Create collector
         collector = HistoricalDataCollector(config, logger)
 
-        # Collect data
-        collector.collect_data(
-            days=int(input("Number of days to fetch (default 90): ") or "90"),
-            top_n=int(input("Number of top coins (default 10): ") or "10"),
-            interval="1"  # 1-minute candles
-        )
+        # If specific symbol provided, fetch only that
+        if args.symbol:
+            logger.info(f"Fetching data for specific symbol: {args.symbol}")
+            klines = collector.get_historical_klines(args.symbol, args.interval, args.days)
+            if klines:
+                # Save klines to database
+                collector.data_collector.save_klines(args.symbol, klines)
+                logger.info(f"Saved {len(klines)} klines for {args.symbol}")
+        else:
+            # Collect data for top coins
+            collector.collect_data(
+                days=args.days,
+                top_n=args.top_n,
+                interval=args.interval
+            )
 
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)

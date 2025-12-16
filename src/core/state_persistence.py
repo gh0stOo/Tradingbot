@@ -117,7 +117,7 @@ class StatePersistence:
                 snapshot["daily_pnl"],
                 snapshot["trades_today"],
                 json.dumps(snapshot),
-            ))
+            ), return_cursor=True)
             
             snapshot_id = cursor.lastrowid
             

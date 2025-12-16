@@ -32,7 +32,8 @@ class TradingBot:
         market_data: MarketData,
         order_manager: OrderManager,
         data_collector: Optional[Any] = None,
-        position_tracker: Optional[Any] = None
+        position_tracker: Optional[Any] = None,
+        position_manager: Optional[Any] = None
     ):
         """
         Initialize Trading Bot
@@ -43,6 +44,7 @@ class TradingBot:
             order_manager: OrderManager instance
             data_collector: DataCollector instance for logging trades
             position_tracker: PositionTracker instance for tracking positions
+            position_manager: PositionManager instance for exit management/persistence
         """
         self.logger = logging.getLogger(__name__)
         self.config = config
@@ -50,6 +52,7 @@ class TradingBot:
         self.order_manager = order_manager
         self.data_collector = data_collector
         self.position_tracker = position_tracker
+        self.position_manager = position_manager
         # FIX #3: Store trading_mode (was missing)
         self.trading_mode = config.get("trading", {}).get("mode", "PAPER")
         # Initialize indicators with caching enabled
@@ -60,6 +63,7 @@ class TradingBot:
         self.strategies = Strategies(config)
         self.risk_manager = RiskManager(config, data_collector)
         self.btc_tracker = BTCTracker(history_hours=24)
+        self.online_learning_manager = None
         
         # Initialize correlation filter
         filters_config = config.get("filters", {})
@@ -77,12 +81,14 @@ class TradingBot:
         self.ml_enabled = config.get("ml", {}).get("enabled", False) and ML_AVAILABLE
         self.signal_predictor = None
         self.regime_classifier = None
+        self._ml_initialized = False
 
         if self.ml_enabled:
             try:
                 self.signal_predictor = SignalPredictor()
                 self.regime_classifier = RegimeClassifier()
                 self.logger.info("ML models initialized successfully")
+                self._ml_initialized = True
             except Exception as e:
                 self.logger.warning(f"Failed to initialize ML models: {e}. Continuing without ML.")
                 self.ml_enabled = False
@@ -149,30 +155,23 @@ class TradingBot:
                     extra={"context": {"position_tracker": type(self.position_tracker).__name__}}
                 )
 
-        # ML Models initialization
-        self.ml_enabled = self.config.get("ml", {}).get("enabled", False)
-        self.signal_predictor = None
-        self.regime_classifier = None
-        
-        # Online Learning (Phase 3)
-        self.online_learning_manager = None
-        if self.ml_enabled and self.data_collector:
+        # Online Learning (Phase 3) - initialize once when available
+        if self.ml_enabled and self.data_collector and self.online_learning_manager is None:
             try:
                 from ml.weight_optimizer import OnlineLearningManager
                 online_learning_config = self.config.get("ml", {}).get("onlineLearning", {})
                 if online_learning_config.get("enabled", False):
-                    self.online_learning_manager = OnlineLearningManager(self.config, data_collector)
+                    self.online_learning_manager = OnlineLearningManager(self.config, self.data_collector)
                     self.logger.info("Online Learning Manager initialized")
             except Exception as e:
                 self.logger.warning(f"Online Learning Manager initialization failed: {e}")
             except ImportError as e:
                 self.logger.debug(f"Online Learning not available: {e}")
 
-        if self.ml_enabled and ML_AVAILABLE:
+        if self.ml_enabled and ML_AVAILABLE and not self._ml_initialized:
             self._initialize_ml_models()
-        else:
-            if self.ml_enabled and not ML_AVAILABLE:
-                self.logger.warning("ML enabled but ML modules not available. Running without ML.")
+        elif self.ml_enabled and not ML_AVAILABLE:
+            self.logger.warning("ML enabled but ML modules not available. Running without ML.")
             self.ml_enabled = False
 
     def _initialize_ml_models(self):
@@ -203,9 +202,11 @@ class TradingBot:
             else:
                 self.logger.warning("No ML models available. Running with base strategies only.")
                 self.ml_enabled = False
+            self._ml_initialized = True
         except Exception as e:
             self.logger.warning(f"Error loading ML models: {e}. Running without ML.")
             self.ml_enabled = False
+            self._ml_initialized = True
     
     def ensemble_decision(self, signals: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
@@ -605,6 +606,8 @@ class TradingBot:
                 "side": final_signal["side"],
                 **position,
                 "tickSize": symbol_info.get("tickSize", "0.01"),
+                "qtyStep": float(symbol_info.get("qtyStep", 0.001)),
+                "minOrderQty": float(symbol_info.get("minOrderQty", 0.001)),
                 # Add data for slippage calculation
                 "volume24h": symbol_info.get("volume24h", 0),
                 "volatility": indicators.get("volatility"),
@@ -655,6 +658,13 @@ class TradingBot:
                             funding_rate=indicators.get("fundingRate", 0),
                             volume_24h=symbol_info.get("volume24h", 0)
                         )
+
+                        # Persist multi-target exits for restart safety
+                        if self.position_manager and position.get("multiTargets"):
+                            try:
+                                self.position_manager.set_multi_targets(trade_id, position["multiTargets"])
+                            except Exception as e:
+                                self.logger.warning(f"Failed to persist multi-targets for trade {trade_id}: {e}")
                 except Exception as e:
                     import logging
                     logger = logging.getLogger(__name__)

@@ -235,11 +235,59 @@ class EventLoop:
                 else:
                     # Opposite direction - reduce or close position
                     if event.filled_quantity >= existing_position.quantity:
-                        # Close position
-                        self.trading_state.close_position(event.symbol)
+                        # Close position - calculate realized PnL
+                        if existing_position.side == "Buy":
+                            pnl_before_fees = (event.filled_price - existing_position.entry_price) * existing_position.quantity
+                        else:  # Sell
+                            pnl_before_fees = (existing_position.entry_price - event.filled_price) * existing_position.quantity
+                        
+                        # Calculate fees (approximate - commission may already be in event.commission)
+                        entry_notional = existing_position.entry_price * existing_position.quantity
+                        exit_notional = event.filled_price * existing_position.quantity
+                        taker_fee_rate = Decimal(str(self.config.get("risk", {}).get("takerFee", 0.001)))
+                        entry_fee = entry_notional * taker_fee_rate
+                        exit_fee = exit_notional * taker_fee_rate
+                        total_fees = entry_fee + exit_fee
+                        
+                        # Use commission from event if available, otherwise use calculated fees
+                        commission = event.commission if event.commission is not None else total_fees
+                        realized_pnl = pnl_before_fees - commission
+                        
+                        # For live trading: Credit cash (margin + realized PnL) BEFORE removing position
+                        if self.trading_mode in ["LIVE", "TESTNET"]:
+                            leverage = Decimal(str(self.config.get("risk", {}).get("leverageMax", 10)))
+                            margin_returned = entry_notional / leverage if leverage > 0 else entry_notional
+                            cash_to_credit = margin_returned + realized_pnl
+                            self.trading_state.credit_cash(cash_to_credit)
+                            logger.debug(f"Cash credited on position close: margin={margin_returned}, pnl={realized_pnl}, total={cash_to_credit}")
+                        
+                        self.trading_state.remove_position(event.symbol, realized_pnl=realized_pnl)
                     else:
-                        # Reduce position
+                        # Partial reduce position
                         new_quantity = existing_position.quantity - event.filled_quantity
+                        
+                        # For live trading: Credit proportional margin + realized PnL
+                        if self.trading_mode in ["LIVE", "TESTNET"]:
+                            reduce_ratio = event.filled_quantity / existing_position.quantity
+                            notional_reduced = existing_position.entry_price * event.filled_quantity
+                            leverage = Decimal(str(self.config.get("risk", {}).get("leverageMax", 10)))
+                            margin_returned = notional_reduced / leverage if leverage > 0 else notional_reduced
+                            
+                            # Calculate PnL for reduced portion
+                            if existing_position.side == "Buy":
+                                pnl_before_fees = (event.filled_price - existing_position.entry_price) * event.filled_quantity
+                            else:
+                                pnl_before_fees = (existing_position.entry_price - event.filled_price) * event.filled_quantity
+                            
+                            exit_notional = event.filled_price * event.filled_quantity
+                            taker_fee_rate = Decimal(str(self.config.get("risk", {}).get("takerFee", 0.001)))
+                            commission = event.commission if event.commission is not None else (exit_notional * taker_fee_rate)
+                            realized_pnl = pnl_before_fees - commission
+                            
+                            cash_to_credit = margin_returned + realized_pnl
+                            self.trading_state.credit_cash(cash_to_credit)
+                            logger.debug(f"Cash credited on partial reduce: margin={margin_returned}, pnl={realized_pnl}, total={cash_to_credit}")
+                        
                         self.trading_state.update_position(
                             event.symbol,
                             quantity=new_quantity
@@ -264,10 +312,21 @@ class EventLoop:
                 )
                 
                 self.trading_state.add_position(event.symbol, position)
-            
-            # Update cash (margin + fees)
-            # This is handled in OrderExecutor for paper trading
-            # For live trading, exchange handles this, but we track it
+                
+                # For live trading: Update cash (margin + fees) on entry
+                if self.trading_mode in ["LIVE", "TESTNET"]:
+                    notional_value = event.filled_price * event.filled_quantity
+                    leverage = Decimal(str(self.config.get("risk", {}).get("leverageMax", 10)))
+                    margin_required = notional_value / leverage if leverage > 0 else notional_value
+                    
+                    # Get commission from event or calculate fee
+                    taker_fee_rate = Decimal(str(self.config.get("risk", {}).get("takerFee", 0.001)))
+                    commission = event.commission if event.commission is not None else (notional_value * taker_fee_rate)
+                    
+                    # Debit cash for margin + commission
+                    total_debit = margin_required + commission
+                    if not self.trading_state.debit_cash(total_debit):
+                        logger.warning(f"Insufficient cash for margin+commission: {total_debit}")
             
             logger.info(f"Position updated for {event.symbol} after fill: {event.filled_quantity} @ {event.filled_price}")
         

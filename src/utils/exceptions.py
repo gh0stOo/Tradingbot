@@ -69,3 +69,13 @@ class RateLimitError(APIError):
         super().__init__(message)
         self.retry_after = retry_after  # Seconds to wait before retry
 
+
+class NetworkError(APIError):
+    """Network/timeout errors that are retryable"""
+    pass
+
+
+class InsufficientBalanceError(APIError):
+    """Raised when the exchange reports insufficient balance"""
+    pass
+

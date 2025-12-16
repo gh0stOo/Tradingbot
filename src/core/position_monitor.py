@@ -157,7 +157,9 @@ class PositionMonitor:
             
             if removed_position:
                 # Return margin + PnL to cash
-                margin_used = (position.entry_price * position.quantity) / Decimal(str(self.config.get("trading", {}).get("leverage", 10)))
+                # Use leverageMax from risk config (not trading.leverage)
+                leverage = Decimal(str(self.config.get("risk", {}).get("leverageMax", 10)))
+                margin_used = (position.entry_price * position.quantity) / leverage if leverage > 0 else (position.entry_price * position.quantity)
                 cash_to_return = margin_used + realized_pnl
                 
                 # Only credit if positive (realized loss reduces cash)

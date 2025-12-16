@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 
 from data.position_tracker import PositionTracker
+from data.database import Database
 from integrations.bybit import BybitClient
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,8 @@ class PositionManager:
         position_tracker: PositionTracker,
         bybit_client: Optional[BybitClient] = None,
         check_interval: float = 5.0,  # Check every 5 seconds
-        auto_close_enabled: bool = True
+        auto_close_enabled: bool = True,
+        db: Optional[Database] = None
     ):
         """
         Initialize Position Manager
@@ -30,18 +32,23 @@ class PositionManager:
             bybit_client: BybitClient instance (for fetching current prices)
             check_interval: Interval in seconds between position checks
             auto_close_enabled: Enable automatic position closing
+            db: Database instance for persisting multi-target exits
         """
         self.position_tracker = position_tracker
         self.bybit_client = bybit_client
         self.check_interval = check_interval
         self.auto_close_enabled = auto_close_enabled
+        self.db = db
         
         self.monitoring_active = False
         self.monitoring_thread: Optional[threading.Thread] = None
+        self.sync_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
         
         # Multi-target tracking (TP1, TP2, TP3, TP4)
         self.multi_targets: Dict[int, Dict[str, float]] = {}  # trade_id -> {tp1: price, tp2: price, ...}
+        self._multi_targets_lock = threading.RLock()
+        self._load_multi_targets()
     
     def set_multi_targets(
         self,
@@ -55,8 +62,55 @@ class PositionManager:
             trade_id: Trade ID
             targets: Dictionary with TP keys (tp1, tp2, tp3, tp4) and prices
         """
-        self.multi_targets[trade_id] = targets
+        with self._multi_targets_lock:
+            self.multi_targets[trade_id] = targets
+        if self.db:
+            try:
+                for target_key, config in targets.items():
+                    if not isinstance(config, dict) or target_key == "enabled":
+                        continue
+                    self.db.execute(
+                        """
+                        INSERT OR REPLACE INTO multi_target_exits
+                        (trade_id, target_key, target_price, target_qty, filled, updated_at)
+                        VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+                        """,
+                        (
+                            trade_id,
+                            target_key,
+                            float(config.get("price", 0)),
+                            float(config.get("qty", 0)),
+                        ),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to persist multi-targets for trade {trade_id}: {e}")
         logger.debug(f"Set multi-targets for trade {trade_id}: {targets}")
+
+    def _load_multi_targets(self) -> None:
+        """Load persisted multi-targets from database on startup."""
+        if not self.db:
+            return
+        try:
+            rows = self.db.fetch_all(
+                """
+                SELECT trade_id, target_key, target_price, target_qty
+                FROM multi_target_exits
+                WHERE filled = 0
+                """
+            )
+            with self._multi_targets_lock:
+                for row in rows:
+                    trade_id = row["trade_id"]
+                    if trade_id not in self.multi_targets:
+                        self.multi_targets[trade_id] = {}
+                    self.multi_targets[trade_id][row["target_key"]] = {
+                        "price": row["target_price"],
+                        "qty": row["target_qty"],
+                    }
+            if rows:
+                logger.info(f"Loaded {len(rows)} persisted multi-target levels")
+        except Exception as e:
+            logger.warning(f"Failed to load multi-target exits: {e}")
     
     def check_exit_conditions(
         self,
@@ -96,15 +150,16 @@ class PositionManager:
                 return "Take Profit"
         
         # Check multi-targets (partial exits)
-        if trade_id in self.multi_targets:
-            targets = self.multi_targets[trade_id]
-            for tp_key, tp_price in sorted(targets.items()):
-                # Check if we've already hit this target (could track partial fills)
-                # For now, check all targets and return the first one hit
-                if side == "Buy" and current_price >= tp_price:
-                    return f"Take Profit ({tp_key.upper()})"
-                elif side == "Sell" and current_price <= tp_price:
-                    return f"Take Profit ({tp_key.upper()})"
+        with self._multi_targets_lock:
+            if trade_id in self.multi_targets:
+                targets = self.multi_targets[trade_id]
+                for tp_key, tp_price in sorted(targets.items()):
+                    # Check if we've already hit this target (could track partial fills)
+                    # For now, check all targets and return the first one hit
+                    if side == "Buy" and current_price >= tp_price:
+                        return f"Take Profit ({tp_key.upper()})"
+                    elif side == "Sell" and current_price <= tp_price:
+                        return f"Take Profit ({tp_key.upper()})"
         
         return None
     
@@ -139,8 +194,21 @@ class PositionManager:
         
         if result:
             # Clean up multi-targets
-            if trade_id in self.multi_targets:
-                del self.multi_targets[trade_id]
+            with self._multi_targets_lock:
+                if trade_id in self.multi_targets:
+                    del self.multi_targets[trade_id]
+            if self.db:
+                try:
+                    self.db.execute(
+                        """
+                        UPDATE multi_target_exits
+                        SET filled = 1, filled_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE trade_id = ?
+                        """,
+                        (trade_id,),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to mark multi-targets filled for trade {trade_id}: {e}")
             return True
         
         return False
@@ -252,6 +320,34 @@ class PositionManager:
                 time.sleep(self.check_interval)
         
         logger.info("Position monitoring stopped")
+
+    def _sync_with_bybit(self) -> None:
+        """Background task to detect mismatches between bot state and Bybit positions."""
+        if not self.bybit_client:
+            return
+        if not getattr(self.bybit_client, "api_key", None):
+            logger.debug("Skipping Bybit sync - missing API credentials")
+            return
+
+        while not self.stop_event.is_set():
+            try:
+                positions = self.bybit_client.get_positions(category="linear")
+                bybit_symbols = {p.get("symbol") for p in positions if float(p.get("size", 0) or 0) > 0}
+                bot_symbols = {
+                    pos["symbol"] for pos in self.position_tracker.get_open_positions().values()
+                }
+
+                missing_in_bot = bybit_symbols - bot_symbols
+                missing_in_bybit = bot_symbols - bybit_symbols
+
+                if missing_in_bot:
+                    logger.warning(f"Positions on Bybit not tracked locally: {missing_in_bot}")
+                if missing_in_bybit:
+                    logger.error(f"Positions tracked locally but not on Bybit: {missing_in_bybit}")
+            except Exception as e:
+                logger.debug(f"Bybit sync error: {e}", exc_info=True)
+
+            self.stop_event.wait(60.0)
     
     def start_monitoring(self) -> bool:
         """
@@ -277,6 +373,14 @@ class PositionManager:
             name="PositionMonitor"
         )
         self.monitoring_thread.start()
+
+        if self.bybit_client:
+            self.sync_thread = threading.Thread(
+                target=self._sync_with_bybit,
+                daemon=True,
+                name="PositionSync"
+            )
+            self.sync_thread.start()
         
         logger.info("Position monitoring thread started")
         return True
@@ -291,6 +395,9 @@ class PositionManager:
         
         if self.monitoring_thread and self.monitoring_thread.is_alive():
             self.monitoring_thread.join(timeout=10.0)
+
+        if self.sync_thread and self.sync_thread.is_alive():
+            self.sync_thread.join(timeout=10.0)
         
         logger.info("Position monitoring stopped")
     

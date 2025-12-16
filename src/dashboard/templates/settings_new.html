@@ -1,0 +1,251 @@
+{% extends "base_neon.html" %}
+
+{% block title %}Settings - Trading Bot{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<!-- Settings Container -->
+<div class="card card-neon-cyan mb-6">
+    <h2 class="text-lg font-bold mb-6">Bot Settings</h2>
+    <p class="text-sm text-gray-400 mb-6">Configure bot behavior, risk parameters, and integrations</p>
+
+    <!-- Settings will be grouped by category -->
+    <div id="settings-container" style="display: flex; flex-direction: column; gap: 2rem;">
+        <!-- Loaded dynamically -->
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+        <button onclick="saveSettings()" class="btn btn-success btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            Save Settings
+        </button>
+        <button onclick="resetSettings()" class="btn btn-secondary btn-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reset
+        </button>
+    </div>
+</div>
+
+<!-- Info Box -->
+<div style="background: rgba(0, 255, 255, 0.1); border: 1px solid var(--neon-cyan); border-radius: 4px; padding: 1rem; margin-top: 2rem;">
+    <p class="text-sm text-gray-300">
+        <strong>Note:</strong> Settings that require restart are marked with a ⟳ icon.
+        Changes take effect immediately unless otherwise noted.
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/ui-helpers.js"></script>
+<script>
+// ============ STATE ============
+
+let originalSettings = {};
+let currentSettings = {};
+let settingsSchema = {};
+let changedSettings = [];
+
+// ============ INITIALIZATION ============
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadSettings();
+});
+
+// ============ LOAD SETTINGS ============
+
+async function loadSettings() {
+    try {
+        // Fetch schema and current values
+        const schemaResponse = await fetch('/api/settings/schema');
+        const settingsResponse = await fetch('/api/settings');
+
+        if (!schemaResponse.ok || !settingsResponse.ok) {
+            showError('Load Failed', 'Could not load settings from server');
+            return;
+        }
+
+        const schemaData = await schemaResponse.json();
+        const settingsData = await settingsResponse.json();
+
+        settingsSchema = schemaData.schema;
+
+        // Store original settings
+        if (settingsData.settings) {
+            settingsData.settings.forEach(setting => {
+                originalSettings[setting.key] = setting.value;
+                currentSettings[setting.key] = setting.value;
+            });
+        }
+
+        // Render UI
+        renderSettings();
+    } catch (error) {
+        console.error('Error loading settings:', error);
+        showError('Network Error', error.message);
+    }
+}
+
+// ============ RENDER SETTINGS ============
+
+function renderSettings() {
+    const container = document.getElementById('settings-container');
+    container.innerHTML = '';
+
+    // Iterate through categories
+    Object.keys(settingsSchema).sort().forEach(category => {
+        const categorySettings = settingsSchema[category];
+        const categoryDiv = document.createElement('div');
+        categoryDiv.style.borderTop = '1px solid rgba(0, 255, 255, 0.2)';
+        categoryDiv.style.paddingTop = '1.5rem';
+
+        // Category header
+        const header = document.createElement('h3');
+        header.className = 'text-base font-bold mb-4';
+        header.style.color = 'var(--neon-cyan)';
+        header.textContent = category;
+        categoryDiv.appendChild(header);
+
+        // Settings in category
+        categorySettings.forEach(setting => {
+            const schema = setting.schema;
+            const key = setting.key;
+            const value = currentSettings[key];
+
+            const settingDiv = document.createElement('div');
+            settingDiv.className = 'form-group';
+            settingDiv.style.marginBottom = '1.5rem';
+
+            // Label
+            const label = document.createElement('label');
+            label.className = 'form-label';
+            label.style.marginBottom = '0.5rem';
+            label.style.display = 'flex';
+            label.style.justifyContent = 'space-between';
+            label.style.alignItems = 'center';
+
+            const labelText = document.createElement('span');
+            labelText.textContent = schema.label;
+            label.appendChild(labelText);
+
+            // Restart badge
+            if (schema.requires_restart) {
+                const badge = document.createElement('span');
+                badge.style.fontSize = '0.75rem';
+                badge.style.color = 'var(--neon-yellow)';
+                badge.textContent = '⟳ Restart Required';
+                label.appendChild(badge);
+            }
+
+            settingDiv.appendChild(label);
+
+            // Description
+            const description = document.createElement('p');
+            description.className = 'text-sm text-gray-400';
+            description.style.marginBottom = '0.5rem';
+            description.textContent = schema.description;
+            settingDiv.appendChild(description);
+
+            // Input field based on type
+            let inputElement;
+
+            if (schema.type === 'boolean') {
+                inputElement = document.createElement('input');
+                inputElement.type = 'checkbox';
+                inputElement.checked = value === true;
+                inputElement.style.width = '1.5rem';
+                inputElement.style.height = '1.5rem';
+                inputElement.style.cursor = 'pointer';
+                inputElement.onchange = () => updateSetting(key, inputElement.checked);
+            } else if (schema.type === 'enum') {
+                inputElement = document.createElement('select');
+                inputElement.className = 'form-select';
+                schema.options.forEach(option => {
+                    const optionElem = document.createElement('option');
+                    optionElem.value = option;
+                    optionElem.textContent = option;
+                    optionElem.selected = value === option;
+                    inputElement.appendChild(optionElem);
+                });
+                inputElement.onchange = () => updateSetting(key, inputElement.value);
+            } else if (schema.type === 'integer' || schema.type === 'number') {
+                inputElement = document.createElement('input');
+                inputElement.type = 'number';
+                inputElement.className = 'form-input';
+                inputElement.value = value;
+                if (schema.min !== undefined) inputElement.min = schema.min;
+                if (schema.max !== undefined) inputElement.max = schema.max;
+                if (schema.type === 'number') inputElement.step = '0.01';
+                inputElement.onchange = () => {
+                    const numValue = schema.type === 'integer' ? parseInt(inputElement.value) : parseFloat(inputElement.value);
+                    updateSetting(key, numValue);
+                };
+            } else {
+                inputElement = document.createElement('input');
+                inputElement.type = 'text';
+                inputElement.className = 'form-input';
+                inputElement.value = value;
+                inputElement.onchange = () => updateSetting(key, inputElement.value);
+            }
+
+            settingDiv.appendChild(inputElement);
+            categoryDiv.appendChild(settingDiv);
+        });
+
+        container.appendChild(categoryDiv);
+    });
+}
+
+// ============ UPDATE SETTING ============
+
+function updateSetting(key, value) {
+    currentSettings[key] = value;
+
+    // Track changes
+    if (!changedSettings.includes(key)) {
+        changedSettings.push(key);
+    }
+}
+
+// ============ SAVE SETTINGS ============
+
+async function saveSettings() {
+    if (changedSettings.length === 0) {
+        showInfo('No Changes', 'No settings were modified');
+        return;
+    }
+
+    // Build update request
+    const updates = changedSettings.map(key => ({
+        key: key,
+        value: currentSettings[key]
+    }));
+
+    const result = await apiCall('POST', '/api/settings', { updates });
+
+    if (result) {
+        changedSettings = [];
+        showSuccess('Settings Saved', 'Your settings have been updated');
+
+        if (result.requires_restart) {
+            showWarning('Restart Required', 'Some changes require bot restart to take effect');
+        }
+    }
+}
+
+// ============ RESET SETTINGS ============
+
+function resetSettings() {
+    if (!confirm('Reset all settings to their original values?')) return;
+
+    currentSettings = { ...originalSettings };
+    changedSettings = [];
+    renderSettings();
+    showInfo('Reset Complete', 'Settings reset to original values');
+}
+</script>
+{% endblock %}

@@ -51,10 +51,12 @@ class OrderExecutor:
         # Get leverage from config (default 10x)
         if config:
             self.leverage = Decimal(str(config.get("trading", {}).get("leverage", 10)))
+            self.taker_fee_rate = Decimal(str(config.get("risk", {}).get("takerFee", 0.001)))
         else:
             self.leverage = Decimal("10")  # Default 10x leverage
+            self.taker_fee_rate = Decimal("0.001")  # Default 0.1% taker fee
         
-        logger.info(f"OrderExecutor initialized (mode: {trading_mode}, leverage: {self.leverage}x)")
+        logger.info(f"OrderExecutor initialized (mode: {trading_mode}, leverage: {self.leverage}x, taker_fee: {self.taker_fee_rate})")
     
     def execute_approved_order(self, approval_event: RiskApprovalEvent) -> Optional[OrderSubmissionEvent]:
         """

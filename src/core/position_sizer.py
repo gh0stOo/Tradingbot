@@ -14,6 +14,25 @@ class PositionSizer:
     Formula: quantity = (equity * risk_pct) / (entry_price - stop_loss)
     """
     
+    def __init__(self, config: Dict) -> None:
+        """
+        Initialize Position Sizer.
+        
+        Args:
+            config: Configuration dictionary
+        """
+        self.config = config
+        risk_config = config.get("risk", {})
+        
+        # Get taker fee rate from config
+        self.taker_fee_rate = Decimal(str(risk_config.get("takerFee", 0.001)))  # Default 0.1%
+        
+        # Get minimums from config
+        self.min_quantity = Decimal(str(risk_config.get("minQuantity", 0.001)))
+        self.min_trade_value = Decimal(str(risk_config.get("minTradeValue", 10)))
+        
+        logger.info(f"PositionSizer initialized: taker_fee={self.taker_fee_rate}, min_quantity={self.min_quantity}, min_trade_value={self.min_trade_value}")
+    
     def calculate_position_size(
         self,
         equity: Decimal,

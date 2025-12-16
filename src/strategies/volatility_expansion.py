@@ -1,7 +1,6 @@
 """Intraday Volatility Expansion Strategy"""
 
 from typing import List, Optional
-from decimal import Decimal
 import pandas as pd
 from events.market_event import MarketEvent
 from events.signal_event import SignalEvent
@@ -27,9 +26,10 @@ class VolatilityExpansionStrategy(BaseStrategy):
         # Strategy parameters
         self.config = config.get("volatilityExpansion", {})
         self.compression_lookback = self.config.get("compressionLookback", 20)
-        self.expansion_threshold = self.config.get("expansionThreshold", 1.5)  # 1.5x ATR
+        # Temporarily reduced thresholds for testing
+        self.expansion_threshold = self.config.get("expansionThreshold", 1.2)  # 1.2x ATR (reduced from 1.5x)
         self.r_multiple_target = self.config.get("rMultipleTarget", 2.5)
-        self.min_confidence = self.config.get("minConfidence", 0.65)
+        self.min_confidence = self.config.get("minConfidence", 0.50)  # 50% (reduced from 65%)
     
     def generate_signals(self, market_event: MarketEvent) -> List[SignalEvent]:
         """
@@ -61,13 +61,13 @@ class VolatilityExpansionStrategy(BaseStrategy):
             if not indicators_dict or "atr" not in indicators_dict:
                 return []
             
-            atr = indicators_dict["atr"]
+            atr = float(indicators_dict["atr"])
             if atr <= 0:
                 return []
             
-            current_price = Decimal(str(market_event.price))
-            high = df["high"].iloc[-self.compression_lookback:].max()
-            low = df["low"].iloc[-self.compression_lookback:].min()
+            current_price = float(market_event.price)
+            high = float(df["high"].iloc[-self.compression_lookback:].max())
+            low = float(df["low"].iloc[-self.compression_lookback:].min())
             range_size = high - low
             
             # Check for Volatility Compression
@@ -97,17 +97,17 @@ class VolatilityExpansionStrategy(BaseStrategy):
             # Use current_price from market_event (most recent price)
             # For high/low, use the last candle's data (current candle not yet closed)
             # This is acceptable as we're checking for breakouts of the range
-            current_high = df["high"].iloc[-1] if len(df) > 0 else current_price
-            current_low = df["low"].iloc[-1] if len(df) > 0 else current_price
             
             # For breakout detection, check if current_price exceeds the range
             # This ensures we use the most recent price, not a potentially stale candle close
-            price_breakout_up = current_price > high * Decimal("1.001")
-            price_breakout_down = current_price < low * Decimal("0.999")
+            price_breakout_up = current_price > high * 1.001
+            price_breakout_down = current_price < low * 0.999
             
             # Also check candle-based breakout for confirmation
-            candle_breakout_up = current_high > high * Decimal("1.001")
-            candle_breakout_down = current_low < low * Decimal("0.999")
+            current_high = float(df["high"].iloc[-1]) if len(df) > 0 else current_price
+            current_low = float(df["low"].iloc[-1]) if len(df) > 0 else current_price
+            candle_breakout_up = current_high > high * 1.001
+            candle_breakout_down = current_low < low * 0.999
             
             # Require both price AND candle breakout for confirmation
             is_breakout_up = price_breakout_up and candle_breakout_up
@@ -120,8 +120,8 @@ class VolatilityExpansionStrategy(BaseStrategy):
                 confidence = min(0.9, 0.65 + (expansion_ratio - 1.0) * 0.1)
                 if confidence >= self.min_confidence:
                     # Calculate stop loss and take profit (R-Multiple based)
-                    sl_distance = atr * Decimal("2.0")  # 2 ATR stop
-                    tp_distance = sl_distance * Decimal(str(self.r_multiple_target))  # R-Multiple target
+                    sl_distance = atr * 2.0  # 2 ATR stop
+                    tp_distance = sl_distance * float(self.r_multiple_target)  # R-Multiple target
                     
                     stop_loss = current_price - sl_distance
                     take_profit = current_price + tp_distance
@@ -149,8 +149,8 @@ class VolatilityExpansionStrategy(BaseStrategy):
             elif is_expansion and is_breakout_down:
                 confidence = min(0.9, 0.65 + (expansion_ratio - 1.0) * 0.1)
                 if confidence >= self.min_confidence:
-                    sl_distance = atr * Decimal("2.0")
-                    tp_distance = sl_distance * Decimal(str(self.r_multiple_target))
+                    sl_distance = atr * 2.0
+                    tp_distance = sl_distance * float(self.r_multiple_target)
                     
                     stop_loss = current_price + sl_distance
                     take_profit = current_price - tp_distance

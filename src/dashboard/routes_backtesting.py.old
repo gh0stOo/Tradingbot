@@ -1,0 +1,371 @@
+"""Backtesting API Routes - SQLite-based for Docker compatibility"""
+
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+import logging
+import uuid
+import os
+import json
+
+from data.database import Database
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Initialize database for backtest state
+db_path = os.getenv("TRADING_DB_PATH", "data/trading.db")
+backtest_db = Database(db_path)
+
+class BacktestRequest(BaseModel):
+    start_date: str
+    end_date: str
+    symbols: Optional[List[str]] = None
+    initial_equity: float = 10000.0
+
+@router.post("/api/backtesting/run")
+async def run_backtest(request: BacktestRequest) -> Dict[str, Any]:
+    """Start a new backtest - stores state in SQLite"""
+    try:
+        # Generate backtest ID
+        backtest_id = f"bt_{int(datetime.utcnow().timestamp())}_{uuid.uuid4().hex[:8]}"
+        
+        # Parse dates
+        start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
+        end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
+        
+        # Store in SQLite
+        symbols_json = json.dumps(request.symbols) if request.symbols else None
+        backtest_db.create_backtest(
+            backtest_id=backtest_id,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            symbols=symbols_json,
+            initial_equity=request.initial_equity
+        )
+        
+        logger.info(f"Backtest {backtest_id} started via API - stored in SQLite")
+        
+        # Run actual backtest using EventBacktest (in background thread)
+        import threading
+        thread = threading.Thread(
+            target=_run_actual_backtest,
+            args=(backtest_id, start_date, end_date, request.symbols, request.initial_equity),
+            daemon=True
+        )
+        thread.start()
+        
+        return {
+            "success": True,
+            "backtest_id": backtest_id,
+            "message": "Backtest gestartet",
+            "status": "running"
+        }
+    except Exception as e:
+        logger.error(f"Error starting backtest: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+@router.get("/api/backtesting/list")
+async def list_backtests() -> Dict[str, Any]:
+    """List all backtests from SQLite"""
+    try:
+        backtests_list = backtest_db.list_backtests(limit=100)
+        # Parse JSON fields
+        for bt in backtests_list:
+            if bt.get("symbols"):
+                try:
+                    bt["symbols"] = json.loads(bt["symbols"])
+                except:
+                    bt["symbols"] = []
+            if bt.get("results"):
+                try:
+                    bt["results"] = json.loads(bt["results"])
+                except:
+                    pass
+        
+        return {
+            "backtests": backtests_list,
+            "count": len(backtests_list)
+        }
+    except Exception as e:
+        logger.error(f"Error listing backtests: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+@router.get("/api/backtesting/status/{backtest_id}")
+async def get_backtest_status(backtest_id: str) -> Dict[str, Any]:
+    """Get backtest status from SQLite"""
+    try:
+        backtest = backtest_db.get_backtest(backtest_id)
+        if not backtest:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Backtest nicht gefunden"}
+            )
+        
+        # Parse JSON fields
+        if backtest.get("symbols"):
+            try:
+                backtest["symbols"] = json.loads(backtest["symbols"])
+            except:
+                backtest["symbols"] = []
+        
+        result = {
+            "id": backtest["id"],
+            "status": backtest["status"],
+            "progress": backtest["progress"],
+            "start_date": backtest["start_date"],
+            "end_date": backtest["end_date"],
+            "created_at": backtest["created_at"],
+            "symbols": backtest.get("symbols", []),
+            "initial_equity": backtest.get("initial_equity", 10000.0)
+        }
+        
+        if backtest["status"] == "completed" and backtest.get("results"):
+            try:
+                result["results"] = json.loads(backtest["results"])
+            except:
+                result["results"] = None
+        
+        if backtest.get("error"):
+            result["error"] = backtest["error"]
+            result["error_type"] = backtest.get("error_type")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting backtest status: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+@router.get("/api/backtesting/results/{backtest_id}")
+async def get_backtest_results(backtest_id: str) -> Dict[str, Any]:
+    """Get backtest results from SQLite"""
+    try:
+        backtest = backtest_db.get_backtest(backtest_id)
+        if not backtest:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Backtest nicht gefunden"}
+            )
+        
+        if backtest["status"] != "completed":
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Backtest noch nicht abgeschlossen", "status": backtest["status"]}
+            )
+        
+        if not backtest.get("results"):
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Backtest Ergebnisse nicht verfügbar"}
+            )
+        
+        # Parse results JSON
+        try:
+            results = json.loads(backtest["results"])
+            return results
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing backtest results JSON: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Fehler beim Parsen der Ergebnisse"}
+            )
+    except Exception as e:
+        logger.error(f"Error getting backtest results: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+@router.delete("/api/backtesting/cancel/{backtest_id}")
+async def cancel_backtest(backtest_id: str) -> Dict[str, Any]:
+    """Cancel a running backtest"""
+    try:
+        backtest = backtest_db.get_backtest(backtest_id)
+        if not backtest:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Backtest nicht gefunden"}
+            )
+        
+        if backtest["status"] != "running":
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Backtest läuft nicht", "status": backtest["status"]}
+            )
+        
+        backtest_db.update_backtest_status(backtest_id, "cancelled")
+        logger.info(f"Backtest {backtest_id} cancelled")
+        
+        return {"success": True, "message": "Backtest abgebrochen"}
+    except Exception as e:
+        logger.error(f"Error cancelling backtest: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+def _run_actual_backtest(backtest_id: str, start_date: datetime, end_date: datetime, symbols: Optional[List[str]], initial_equity: float):
+    """Run actual backtest using EventBacktest - updates SQLite"""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    
+    try:
+        # Update progress in SQLite
+        backtest_db.update_backtest_status(backtest_id, "running", progress=10)
+        
+        # Import required modules
+        from utils.config_loader import ConfigLoader
+        from backtesting.event_backtest import EventBacktest
+        from integrations.bybit import BybitClient
+        from trading.market_data import MarketData
+        from core.trading_state import TradingState
+        from core.risk_engine import RiskEngine
+        from core.strategy_allocator import StrategyAllocator
+        from core.order_executor import OrderExecutor
+        from strategies.volatility_expansion import VolatilityExpansionStrategy
+        from strategies.mean_reversion import MeanReversionStrategy
+        from strategies.trend_continuation import TrendContinuationStrategy
+        
+        # Load config
+        config_loader = ConfigLoader()
+        config = config_loader.config
+        
+        # Initialize components
+        trading_state = TradingState(initial_cash=float(initial_equity))
+        trading_state.enable_trading()
+        
+        risk_engine = RiskEngine(config, trading_state)
+        strategy_allocator = StrategyAllocator(config, trading_state)
+        
+        # Create Bybit client (for market data)
+        bybit_config = config.get("bybit", {})
+        market_data_client = BybitClient(
+            api_key=bybit_config.get("testnet_api_key", ""),
+            api_secret=bybit_config.get("testnet_api_secret", ""),
+            testnet=True
+        )
+        market_data = MarketData(market_data_client)
+        
+        order_executor = OrderExecutor(trading_state, None, "PAPER", config)
+        
+        # Initialize strategies
+        strategies = [
+            VolatilityExpansionStrategy(config),
+            MeanReversionStrategy(config),
+            TrendContinuationStrategy(config),
+        ]
+        
+        backtest_db.update_backtest_status(backtest_id, "running", progress=30)
+        
+        # Progress callback for SQLite updates
+        def progress_callback(progress: int, message: str):
+            """Update backtest progress in SQLite"""
+            try:
+                backtest_db.update_backtest_status(backtest_id, "running", progress=progress)
+                logger.debug(f"Backtest {backtest_id} progress: {progress}% - {message}")
+            except Exception as e:
+                logger.debug(f"Could not update progress: {e}")
+        
+        # Create backtest instance with progress callback
+        backtest_engine = EventBacktest(
+            trading_state=trading_state,
+            risk_engine=risk_engine,
+            strategy_allocator=strategy_allocator,
+            order_executor=order_executor,
+            strategies=strategies,
+            config=config,
+            market_data=market_data,
+            initial_equity=float(initial_equity),
+            progress_callback=progress_callback
+        )
+        
+        backtest["progress"] = 50
+        
+        # Run backtest in thread (to not block event loop)
+        def run_in_thread():
+            try:
+                # Get symbols if not provided
+                test_symbols = symbols or ["BTCUSDT"]
+                
+                # Run backtest
+                results = backtest_engine.run(
+                    symbols=test_symbols,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                
+                # Update backtest with results
+                backtest["progress"] = 100
+                backtest["status"] = "completed"
+                
+                # Calculate win rate from results (now available from EventBacktest)
+                win_rate = results.get("win_rate", 0.0)
+                win_rate_pct = results.get("win_rate_pct", 0.0)
+                
+                backtest["results"] = {
+                    "totalPnL": results.get("total_return", 0) * initial_equity,
+                    "totalReturn": results.get("total_return_pct", 0),
+                    "winRate": win_rate,
+                    "winRatePct": win_rate_pct,
+                    "totalTrades": results.get("num_trades", 0),
+                    "maxDrawdown": results.get("max_drawdown_pct", 0),
+                    "profitFactor": results.get("profit_factor", 0),
+                    "expectancy": results.get("expectancy", 0),
+                    "tailLoss95": results.get("tail_loss_95", 0),
+                    "tailLoss99": results.get("tail_loss_99", 0),
+                    "timeToRecovery": results.get("time_to_recovery_hours", 0),
+                    "tradesPerDay": results.get("trades_per_day", 0),
+                    "equityCurve": results.get("equity_curve", [])
+                }
+            except Exception as e:
+                logger.error(f"Error running backtest {backtest_id}: {e}", exc_info=True)
+                backtest["status"] = "error"
+                backtest["error"] = str(e)
+                backtest["error_type"] = type(e).__name__
+                backtest["error_details"] = {
+                    "message": str(e),
+                    "type": type(e).__name__,
+                    "traceback": None  # Don't expose full traceback in production
+                }
+        
+        # Run in background thread
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+        
+        # Wait for completion (with timeout)
+        thread.join(timeout=300)  # 5 minutes timeout
+        
+        if thread.is_alive():
+            backtest["status"] = "error"
+            backtest["error"] = "Backtest timeout after 5 minutes"
+            backtest["error_type"] = "TimeoutError"
+            backtest["error_details"] = {
+                "message": "Backtest execution exceeded 5 minute timeout",
+                "type": "TimeoutError",
+                "traceback": None
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in backtest {backtest_id}: {e}", exc_info=True)
+        if backtest_id in backtests:
+            backtests[backtest_id]["status"] = "error"
+            backtests[backtest_id]["error"] = str(e)
+            backtests[backtest_id]["error_type"] = type(e).__name__
+            backtests[backtest_id]["error_details"] = {
+                "message": str(e),
+                "type": type(e).__name__,
+                "traceback": None
+            }
+
