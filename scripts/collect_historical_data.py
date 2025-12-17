@@ -93,7 +93,7 @@ class HistoricalDataCollector:
         while current_time < end_time:
             try:
                 # Fetch klines
-                response = self.bybit_client.get_klines(
+                klines_raw = self.bybit_client.get_klines(
                     symbol=symbol,
                     interval=interval,
                     startTime=current_time,

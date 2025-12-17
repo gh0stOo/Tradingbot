@@ -37,14 +37,17 @@ services:
     labels:
       - "com.trading-bot.service=api"
       - "com.trading-bot.description=Trading Bot API Server & Dashboard"
+      - "com.trading-bot.version=2.0.0"
+      - "com.trading-bot.architecture=refactored"
 
-  # Trading Bot Worker (main.py)
+  # Trading Bot Worker (main.py) - v2.0.0 Refactored Architecture
   trading-bot-worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: trading-bot-worker
-    command: python src/main.py
+    # NEW: Use refactored bot architecture by default
+    command: python src/main.py --use-refactored-bot
     volumes:
       # Mount entire project for development
       - .:/app
@@ -60,6 +63,8 @@ services:
       - TRADING_DB_PATH=/app/data/trading.db
       - TRADING_MODE=PAPER
       - LOG_LEVEL=INFO
+      - BOT_VERSION=2.0.0
+      - USE_REFACTORED_BOT=true
     restart: on-failure  # Restart on failure
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
@@ -77,7 +82,9 @@ services:
         max-file: "5"
     labels:
       - "com.trading-bot.service=worker"
-      - "com.trading-bot.description=Trading Bot Worker Process"
+      - "com.trading-bot.description=Trading Bot Worker Process (v2.0.0 Refactored)"
+      - "com.trading-bot.version=2.0.0"
+      - "com.trading-bot.architecture=refactored"
 
 networks:
   trading-bot-network:

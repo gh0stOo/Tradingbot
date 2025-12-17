@@ -101,10 +101,37 @@ async function apiCall(method, endpoint, body = null) {
     if (body) options.body = JSON.stringify(body);
 
     const response = await fetch(endpoint, options);
-    const json = await response.json();
+    
+    // Check if response is ok before trying to parse JSON
+    if (!response.ok) {
+      let errorData = null;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        // If JSON parsing fails, use status text
+        showError('API Error', `HTTP ${response.status}: ${response.statusText}`);
+        return null;
+      }
+      
+      const errorType = errorData?.error_type || 'API_ERROR';
+      const message = errorData?.message || errorData?.error || `HTTP ${response.status}: ${response.statusText}`;
+      const detail = errorData?.detail || '';
 
-    // Check for error response
-    if (!response.ok || (json && json.success === false)) {
+      showError(`${errorType}`, message, detail);
+      return null;
+    }
+
+    // Parse JSON response
+    let json;
+    try {
+      json = await response.json();
+    } catch (e) {
+      showError('Parse Error', 'Invalid JSON response from server');
+      return null;
+    }
+
+    // Check for error response in JSON
+    if (json && json.success === false) {
       const errorType = json.error_type || 'API_ERROR';
       const message = json.message || json.error || 'Unknown error';
       const detail = json.detail || '';
@@ -120,7 +147,10 @@ async function apiCall(method, endpoint, body = null) {
 
     return json;
   } catch (err) {
-    showError('Network Error', err.message);
+    // Network errors, CORS errors, etc.
+    console.error('API call error:', err);
+    const errorMessage = err.message || 'Failed to fetch';
+    showError('Network Error', errorMessage, 'Bitte prüfen Sie die Verbindung zum Server');
     return null;
   } finally {
     hideSpinner();

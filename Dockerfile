@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+# Metadata
+LABEL maintainer="Trading Bot Team"
+LABEL version="2.0.0"
+LABEL description="Trading Bot with ML - Refactored Architecture"
+LABEL architecture="refactored"
+
 # Set working directory
 WORKDIR /app
 

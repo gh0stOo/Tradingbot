@@ -207,10 +207,20 @@ async function pollBacktestStatus(backtestId) {
         const response = await fetch(`/api/backtesting/status/${backtestId}`);
 
         if (!response.ok) {
-            showError('API Fehler', `Status Code: ${response.status}`);
+            let errorMsg = `Status Code: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.error || errorData.message || errorMsg;
+            } catch (e) {
+                errorMsg = `${response.status}: ${response.statusText}`;
+            }
+            showError('API Fehler', errorMsg);
             stopPolling();
             return;
         }
+
+        // Reset error count on successful fetch
+        if (window.pollingErrorCount) window.pollingErrorCount = 0;
 
         const status = await response.json();
         const statusEl = document.getElementById('backtest-status');
@@ -261,8 +271,16 @@ async function pollBacktestStatus(backtestId) {
         }
     } catch (error) {
         console.error('Error polling backtest status:', error);
-        showError('Polling Fehler', error.message);
-        stopPolling();
+        const errorMessage = error.message || 'Failed to fetch';
+        showError('Polling Fehler', errorMessage, 'Bitte prüfen Sie die Verbindung zum Server');
+        // Don't stop polling immediately - might be temporary network issue
+        // Only stop after multiple consecutive failures
+        if (!window.pollingErrorCount) window.pollingErrorCount = 0;
+        window.pollingErrorCount++;
+        if (window.pollingErrorCount >= 3) {
+            stopPolling();
+            window.pollingErrorCount = 0;
+        }
     }
 }
 

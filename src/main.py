@@ -2,6 +2,7 @@
 
 import time
 import sys
+import argparse
 from pathlib import Path
 
 # Add src to path
@@ -13,7 +14,8 @@ from integrations.bybit import BybitClient
 from integrations.notion import NotionIntegration
 from trading.market_data import MarketData
 from trading.order_manager import OrderManager
-from trading.bot import TradingBot
+from trading.bot import TradingBot  # OLD Bot
+from trading.bot_refactored import TradingBotRefactored  # NEW Bot
 from api.bot_integration import BotAPIClient
 from data.database import Database
 from data.data_collector import DataCollector
@@ -52,9 +54,18 @@ def get_equity(config: dict, bybit_client: BybitClient) -> float:
 def main():
     """Main trading bot loop - SQLite-based control"""
     global global_state_manager
-    
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Trading Bot")
+    parser.add_argument("--use-refactored-bot", action="store_true",
+                        help="Use REFACTORED bot architecture (NEW!)")
+    args, unknown = parser.parse_known_args()
+
+    use_refactored = args.use_refactored_bot
+
     logger = setup_logger()
-    logger.info("Starting Trading Bot (SQLite-based control)")
+    bot_type = "REFACTORED (NEW)" if use_refactored else "LEGACY (OLD)"
+    logger.info(f"Starting Trading Bot ({bot_type}) - SQLite-based control")
     
     # Initialize BotControlDB FIRST (before anything else)
     from dashboard.bot_control_db import BotControlDB
@@ -170,7 +181,14 @@ def main():
 
     market_data = MarketData(market_data_client)
     order_manager = OrderManager(bybit_client, trading_mode, position_tracker, data_collector)
-    bot = TradingBot(config, market_data, order_manager, data_collector, position_tracker, position_manager=position_manager)
+
+    # Initialize bot based on --use-refactored-bot flag
+    if use_refactored:
+        logger.info("✅ Using REFACTORED bot architecture (NEW!)")
+        bot = TradingBotRefactored(config, market_data, order_manager, data_collector, position_tracker, position_manager=position_manager)
+    else:
+        logger.info("⚠️ Using LEGACY bot architecture (OLD)")
+        bot = TradingBot(config, market_data, order_manager, data_collector, position_tracker, position_manager=position_manager)
 
     # FIX #6: Initialize State Manager for Bot Control (as global)
     if not global_state_manager:

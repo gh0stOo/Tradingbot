@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/quick_test_refactored.py:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)"
+    ]
+  }
+}
